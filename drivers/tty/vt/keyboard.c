@@ -73,7 +73,7 @@ static inline int kbd_defleds(void)
 #define K_HANDLERS\
 	k_self,		k_fn,		k_spec,		k_pad,\
 	k_dead,		k_cons,		k_cur,		k_shift,\
-	k_meta,		k_ascii,	k_lock,		k_lowercase,\
+	k_meta,		k_codepoint,	k_lock,		k_lowercase,\
 	k_slock,	k_dead2,	k_brl,		k_ignore
 
 typedef void (k_handler_fn)(struct vc_data *vc, unsigned char value,
@@ -121,7 +121,7 @@ static const unsigned char max_vals[] = {
 	[ KT_CUR	] = 3,
 	[ KT_SHIFT	] = NR_SHIFT - 1,
 	[ KT_META	] = 255,
-	[ KT_ASCII	] = NR_ASCII - 1,
+	[ KT_CODEPOINT	] = NR_CODEPOINT - 1,
 	[ KT_LOCK	] = NR_LOCK - 1,
 	[ KT_LETTER	] = 255,
 	[ KT_SLOCK	] = NR_LOCK - 1,
@@ -902,7 +902,7 @@ static void k_meta(struct vc_data *vc, unsigned char value, char up_flag)
 		put_queue(vc, value | BIT(7));
 }
 
-static void k_ascii(struct vc_data *vc, unsigned char value, char up_flag)
+static void k_codepoint(struct vc_data *vc, unsigned char value, char up_flag)
 {
 	unsigned int base;
 
