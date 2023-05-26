@@ -35,7 +35,7 @@
 #define KT_CUR		6
 #define KT_SHIFT	7
 #define KT_META		8
-#define KT_ASCII	9
+#define KT_CODEPOINT	9
 #define KT_LOCK		10
 #define KT_LETTER	11	/* symbol that can be acted upon by CapsLock */
 #define KT_SLOCK	12
@@ -422,8 +422,9 @@
 #define K_HEXd		K(KT_ASCII,23)
 #define K_HEXe		K(KT_ASCII,24)
 #define K_HEXf		K(KT_ASCII,25)
+#define K_CODEDOT	K(KT_CODEPOINT,26)
 
-#define NR_ASCII	26
+#define NR_CODEPOINT 27
 
 #define K_SHIFTLOCK	K(KT_LOCK,KG_SHIFT)
 #define K_CTRLLOCK	K(KT_LOCK,KG_CTRL)
