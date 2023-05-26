@@ -902,7 +902,7 @@ static void k_meta(struct vc_data *vc, unsigned char value, char up_flag)
 		put_queue(vc, value | BIT(7));
 }
 
-static void k_ascii(struct vc_data *vc, unsigned char value, char up_flag)
+static void k_codepoint(struct vc_data *vc, unsigned char value, char up_flag)
 {
 	unsigned int base;
 
