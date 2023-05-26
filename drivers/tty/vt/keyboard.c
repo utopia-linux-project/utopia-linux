@@ -145,6 +145,10 @@ static bool dead_key_next;
 /* Handles a number being assembled on the number pad */
 static bool npadch_active;
 static unsigned int npadch_value;
+#ifdef CONFIG_UTOPIA
+static bool npadch_utopia;
+static unsigned int npadch_block;
+#endif
 
 static unsigned int diacr;
 static bool rep;			/* flag telling character repeat */
@@ -375,6 +379,21 @@ static void to_utf8(struct vc_data *vc, uint c)
 		put_queue(vc, 0x80 | (c & 0x3f));
 	}
 }
+
+#ifdef CONFIG_UTOPIA
+static void to_utopia(struct vc_data *vc, uint block, uint c)
+{
+	if (block > 188 || c > 93)
+		return;
+
+	if (block) {
+		put_queue(vc, block > 94 ? 0xFF : 0xFE);
+		put_queue(vc, 0xA0 + (block >= 95 ? block - 95 : block - 1));
+		put_queue(vc, 0xA0 + c);
+	} else
+		put_queue(vc, 0x21 + c);
+}
+#endif
 
 /* FIXME: review locking for vt.c callers */
 static void set_leds(void)
@@ -882,6 +901,11 @@ static void k_shift(struct vc_data *vc, unsigned char value, char up_flag)
 
 	/* kludge */
 	if (up_flag && shift_state != old_state && npadch_active) {
+#ifdef CONFIG_UTOPIA
+		if (npadch_utopia /* && kbd->kbdmode == VC_UTOPIA */)
+			to_utopia(vc, npadch_block, npadch_value);
+		else
+#endif
 		if (kbd->kbdmode == VC_UNICODE)
 			to_utf8(vc, npadch_value);
 		else
@@ -904,26 +928,30 @@ static void k_meta(struct vc_data *vc, unsigned char value, char up_flag)
 
 static void k_codepoint(struct vc_data *vc, unsigned char value, char up_flag)
 {
-	unsigned int base;
-
 	if (up_flag)
 		return;
 
-	if (value < 10) {
-		/* decimal input of code, while Alt depressed */
-		base = 10;
-	} else {
-		/* hexadecimal input of code, while AltGr depressed */
-		value -= 10;
-		base = 16;
-	}
 
 	if (!npadch_active) {
+#ifdef CONFIG_UTOPIA
+		npadch_utopia = false;
+		npadch_block = 0;
+#endif
 		npadch_value = 0;
 		npadch_active = true;
 	}
 
-	npadch_value = npadch_value * base + value;
+	if (value < 10)  /* decimal input of code, while Alt depressed */
+		npadch_value = npadch_value * 10 + value;
+	else if (value < 26)  /* hexadecimal input of code, while AltGr depressed */
+		npadch_value = npadch_value * 16 + (value - 10);
+#ifdef CONFIG_UTOPIA
+	else if (value == 26) {  /* dot */
+		npadch_utopia = true;
+		npadch_block = npadch_value;
+		npadch_value = 0;
+	}
+#endif
 }
 
 static void k_lock(struct vc_data *vc, unsigned char value, char up_flag)
