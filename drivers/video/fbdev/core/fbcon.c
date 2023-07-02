@@ -1058,11 +1058,6 @@ static void fbcon_init(struct vc_data *vc, int init)
 			vc->vc_complement_mask <<= 1;
 	}
 
-	if (!*svc->uni_pagedict_loc)
-		con_set_default_unimap(svc);
-	if (!*vc->uni_pagedict_loc)
-		con_copy_unimap(vc, svc);
-
 	ops = info->fbcon_par;
 	ops->cur_blink_jiffies = msecs_to_jiffies(vc->vc_cur_blink_ms);
 
@@ -1378,11 +1373,6 @@ static void fbcon_set_disp(struct fb_info *info, struct fb_var_screeninfo *var,
 		if (vc->vc_can_do_color)
 			vc->vc_complement_mask <<= 1;
 	}
-
-	if (!*svc->uni_pagedict_loc)
-		con_set_default_unimap(svc);
-	if (!*vc->uni_pagedict_loc)
-		con_copy_unimap(vc, svc);
 
 	cols = FBCON_SWAP(ops->rotate, info->var.xres, info->var.yres);
 	rows = FBCON_SWAP(ops->rotate, info->var.yres, info->var.xres);

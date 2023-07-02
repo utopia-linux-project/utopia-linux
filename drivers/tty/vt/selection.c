@@ -24,7 +24,6 @@
 
 #include <linux/kbd_kern.h>
 #include <linux/vt_kern.h>
-#include <linux/consolemap.h>
 #include <linux/selection.h>
 #include <linux/tiocl.h>
 #include <linux/console.h>
@@ -66,10 +65,11 @@ static inline void highlight_pointer(const int where)
 static u32
 sel_pos(int n, bool unicode)
 {
+#if 0
 	if (unicode)
 		return screen_glyph_unicode(vc_sel.cons, n / 2);
-	return inverse_translate(vc_sel.cons, screen_glyph(vc_sel.cons, n),
-			false);
+#endif
+	return screen_glyph(vc_sel.cons, n);
 }
 
 /**

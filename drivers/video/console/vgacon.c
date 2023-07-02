@@ -75,8 +75,6 @@ static void vgacon_scrolldelta(struct vc_data *c, int lines);
 static int vgacon_set_origin(struct vc_data *c);
 static void vgacon_save_screen(struct vc_data *c);
 static void vgacon_invert_region(struct vc_data *c, u16 * p, int count);
-static struct uni_pagedict *vgacon_uni_pagedir;
-static int vgacon_refcount;
 
 /* Description of the hardware situation */
 static unsigned long	vga_vram_base		__read_mostly;	/* Base of video memory */
@@ -342,8 +340,6 @@ static const char *vgacon_startup(void)
 
 static void vgacon_init(struct vc_data *c, int init)
 {
-	struct uni_pagedict *p;
-
 	/*
 	 * We cannot be loaded as a module, therefore init will be 1
 	 * if we are the default console, however if we are a fallback
@@ -367,14 +363,6 @@ static void vgacon_init(struct vc_data *c, int init)
 	c->vc_complement_mask = 0x7700;
 	if (vga_512_chars)
 		c->vc_hi_font_mask = 0x0800;
-	p = *c->uni_pagedict_loc;
-	if (c->uni_pagedict_loc != &vgacon_uni_pagedir) {
-		con_free_unimap(c);
-		c->uni_pagedict_loc = &vgacon_uni_pagedir;
-		vgacon_refcount++;
-	}
-	if (!vgacon_uni_pagedir && p)
-		con_set_default_unimap(c);
 
 	/* Only set the default if the user didn't deliberately override it */
 	if (global_cursor_default == -1)
@@ -389,11 +377,6 @@ static void vgacon_deinit(struct vc_data *c)
 		c->vc_visible_origin = vga_vram_base;
 		vga_set_mem_top(c);
 	}
-
-	if (!--vgacon_refcount)
-		con_free_unimap(c);
-	c->uni_pagedict_loc = &c->uni_pagedict;
-	con_set_default_unimap(c);
 }
 
 static u8 vgacon_build_attr(struct vc_data *c, u8 color,

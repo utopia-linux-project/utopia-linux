@@ -91,7 +91,6 @@
 #include <linux/selection.h>
 #include <linux/tiocl.h>
 #include <linux/kbd_kern.h>
-#include <linux/consolemap.h>
 #include <linux/timer.h>
 #include <linux/interrupt.h>
 #include <linux/workqueue.h>
@@ -310,251 +309,6 @@ void schedule_console_callback(void)
 	schedule_work(&console_work);
 }
 
-/*
- * Code to manage unicode-based screen buffers
- */
-
-/*
- * Our screen buffer is preceded by an array of line pointers so that
- * scrolling only implies some pointer shuffling.
- */
-
-static u32 **vc_uniscr_alloc(unsigned int cols, unsigned int rows)
-{
-	u32 **uni_lines;
-	void *p;
-	unsigned int memsize, i, col_size = cols * sizeof(**uni_lines);
-
-	/* allocate everything in one go */
-	memsize = col_size * rows;
-	memsize += rows * sizeof(*uni_lines);
-	uni_lines = vzalloc(memsize);
-	if (!uni_lines)
-		return NULL;
-
-	/* initial line pointers */
-	p = uni_lines + rows;
-	for (i = 0; i < rows; i++) {
-		uni_lines[i] = p;
-		p += col_size;
-	}
-
-	return uni_lines;
-}
-
-static void vc_uniscr_free(u32 **uni_lines)
-{
-	vfree(uni_lines);
-}
-
-static void vc_uniscr_set(struct vc_data *vc, u32 **new_uni_lines)
-{
-	vc_uniscr_free(vc->vc_uni_lines);
-	vc->vc_uni_lines = new_uni_lines;
-}
-
-static void vc_uniscr_putc(struct vc_data *vc, u32 uc)
-{
-	if (vc->vc_uni_lines)
-		vc->vc_uni_lines[vc->state.y][vc->state.x] = uc;
-}
-
-static void vc_uniscr_insert(struct vc_data *vc, unsigned int nr)
-{
-	if (vc->vc_uni_lines) {
-		u32 *ln = vc->vc_uni_lines[vc->state.y];
-		unsigned int x = vc->state.x, cols = vc->vc_cols;
-
-		memmove(&ln[x + nr], &ln[x], (cols - x - nr) * sizeof(*ln));
-		memset32(&ln[x], ' ', nr);
-	}
-}
-
-static void vc_uniscr_delete(struct vc_data *vc, unsigned int nr)
-{
-	if (vc->vc_uni_lines) {
-		u32 *ln = vc->vc_uni_lines[vc->state.y];
-		unsigned int x = vc->state.x, cols = vc->vc_cols;
-
-		memcpy(&ln[x], &ln[x + nr], (cols - x - nr) * sizeof(*ln));
-		memset32(&ln[cols - nr], ' ', nr);
-	}
-}
-
-static void vc_uniscr_clear_line(struct vc_data *vc, unsigned int x,
-				 unsigned int nr)
-{
-	if (vc->vc_uni_lines)
-		memset32(&vc->vc_uni_lines[vc->state.y][x], ' ', nr);
-}
-
-static void vc_uniscr_clear_lines(struct vc_data *vc, unsigned int y,
-				  unsigned int nr)
-{
-	if (vc->vc_uni_lines)
-		while (nr--)
-			memset32(vc->vc_uni_lines[y++], ' ', vc->vc_cols);
-}
-
-/* juggling array rotation algorithm (complexity O(N), size complexity O(1)) */
-static void juggle_array(u32 **array, unsigned int size, unsigned int nr)
-{
-	unsigned int gcd_idx;
-
-	for (gcd_idx = 0; gcd_idx < gcd(nr, size); gcd_idx++) {
-		u32 *gcd_idx_val = array[gcd_idx];
-		unsigned int dst_idx = gcd_idx;
-
-		while (1) {
-			unsigned int src_idx = (dst_idx + nr) % size;
-			if (src_idx == gcd_idx)
-				break;
-
-			array[dst_idx] = array[src_idx];
-			dst_idx = src_idx;
-		}
-
-		array[dst_idx] = gcd_idx_val;
-	}
-}
-
-static void vc_uniscr_scroll(struct vc_data *vc, unsigned int top,
-			     unsigned int bottom, enum con_scroll dir,
-			     unsigned int nr)
-{
-	u32 **uni_lines = vc->vc_uni_lines;
-	unsigned int size = bottom - top;
-
-	if (!uni_lines)
-		return;
-
-	if (dir == SM_DOWN) {
-		juggle_array(&uni_lines[top], size, size - nr);
-		vc_uniscr_clear_lines(vc, top, nr);
-	} else {
-		juggle_array(&uni_lines[top], size, nr);
-		vc_uniscr_clear_lines(vc, bottom - nr, nr);
-	}
-}
-
-static void vc_uniscr_copy_area(u32 **dst_lines,
-				unsigned int dst_cols,
-				unsigned int dst_rows,
-				u32 **src_lines,
-				unsigned int src_cols,
-				unsigned int src_top_row,
-				unsigned int src_bot_row)
-{
-	unsigned int dst_row = 0;
-
-	if (!dst_lines)
-		return;
-
-	while (src_top_row < src_bot_row) {
-		u32 *src_line = src_lines[src_top_row];
-		u32 *dst_line = dst_lines[dst_row];
-
-		memcpy(dst_line, src_line, src_cols * sizeof(*src_line));
-		if (dst_cols - src_cols)
-			memset32(dst_line + src_cols, ' ', dst_cols - src_cols);
-		src_top_row++;
-		dst_row++;
-	}
-	while (dst_row < dst_rows) {
-		u32 *dst_line = dst_lines[dst_row];
-
-		memset32(dst_line, ' ', dst_cols);
-		dst_row++;
-	}
-}
-
-/*
- * Called from vcs_read() to make sure unicode screen retrieval is possible.
- * This will initialize the unicode screen buffer if not already done.
- * This returns 0 if OK, or a negative error code otherwise.
- * In particular, -ENODATA is returned if the console is not in UTF-8 mode.
- */
-int vc_uniscr_check(struct vc_data *vc)
-{
-	u32 **uni_lines;
-	unsigned short *p;
-	int x, y, mask;
-
-	WARN_CONSOLE_UNLOCKED();
-
-	if (!vc->vc_utf)
-		return -ENODATA;
-
-	if (vc->vc_uni_lines)
-		return 0;
-
-	uni_lines = vc_uniscr_alloc(vc->vc_cols, vc->vc_rows);
-	if (!uni_lines)
-		return -ENOMEM;
-
-	/*
-	 * Let's populate it initially with (imperfect) reverse translation.
-	 * This is the next best thing we can do short of having it enabled
-	 * from the start even when no users rely on this functionality. True
-	 * unicode content will be available after a complete screen refresh.
-	 */
-	p = (unsigned short *)vc->vc_origin;
-	mask = vc->vc_hi_font_mask | 0xff;
-	for (y = 0; y < vc->vc_rows; y++) {
-		u32 *line = uni_lines[y];
-		for (x = 0; x < vc->vc_cols; x++) {
-			u16 glyph = scr_readw(p++) & mask;
-			line[x] = inverse_translate(vc, glyph, true);
-		}
-	}
-
-	vc->vc_uni_lines = uni_lines;
-
-	return 0;
-}
-
-/*
- * Called from vcs_read() to get the unicode data from the screen.
- * This must be preceded by a successful call to vc_uniscr_check() once
- * the console lock has been taken.
- */
-void vc_uniscr_copy_line(const struct vc_data *vc, void *dest, bool viewed,
-			 unsigned int row, unsigned int col, unsigned int nr)
-{
-	u32 **uni_lines = vc->vc_uni_lines;
-	int offset = row * vc->vc_size_row + col * 2;
-	unsigned long pos;
-
-	if (WARN_ON_ONCE(!uni_lines))
-		return;
-
-	pos = (unsigned long)screenpos(vc, offset, viewed);
-	if (pos >= vc->vc_origin && pos < vc->vc_scr_end) {
-		/*
-		 * Desired position falls in the main screen buffer.
-		 * However the actual row/col might be different if
-		 * scrollback is active.
-		 */
-		row = (pos - vc->vc_origin) / vc->vc_size_row;
-		col = ((pos - vc->vc_origin) % vc->vc_size_row) / 2;
-		memcpy(dest, &uni_lines[row][col], nr * sizeof(u32));
-	} else {
-		/*
-		 * Scrollback is active. For now let's simply backtranslate
-		 * the screen glyphs until the unicode screen buffer does
-		 * synchronize with console display drivers for a scrollback
-		 * buffer of its own.
-		 */
-		u16 *p = (u16 *)pos;
-		int mask = vc->vc_hi_font_mask | 0xff;
-		u32 *uni_buf = dest;
-		while (nr--) {
-			u16 glyph = scr_readw(p++) & mask;
-			*uni_buf++ = inverse_translate(vc, glyph, true);
-		}
-	}
-}
-
 static void con_scroll(struct vc_data *vc, unsigned int top,
 		       unsigned int bottom, enum con_scroll dir,
 		       unsigned int nr)
@@ -567,7 +321,6 @@ static void con_scroll(struct vc_data *vc, unsigned int top,
 	if (bottom > vc->vc_rows || top >= bottom || nr < 1)
 		return;
 
-	vc_uniscr_scroll(vc, top, bottom, dir, nr);
 	if (con_is_visible(vc) &&
 			vc->vc_sw->con_scroll(vc, top, bottom, dir, nr))
 		return;
@@ -774,7 +527,6 @@ static void insert_char(struct vc_data *vc, unsigned int nr)
 {
 	unsigned short *p = (unsigned short *) vc->vc_pos;
 
-	vc_uniscr_insert(vc, nr);
 	scr_memmovew(p + nr, p, (vc->vc_cols - vc->state.x - nr) * 2);
 	scr_memsetw(p, vc->vc_video_erase_char, nr * 2);
 	vc->vc_need_wrap = 0;
@@ -787,7 +539,6 @@ static void delete_char(struct vc_data *vc, unsigned int nr)
 {
 	unsigned short *p = (unsigned short *) vc->vc_pos;
 
-	vc_uniscr_delete(vc, nr);
 	scr_memmovew(p, p + nr, (vc->vc_cols - vc->state.x - nr) * 2);
 	scr_memsetw(p + vc->vc_cols - vc->state.x - nr, vc->vc_video_erase_char,
 			nr * 2);
@@ -996,10 +747,6 @@ static void visual_init(struct vc_data *vc, int num, int init)
 	__module_get(vc->vc_sw->owner);
 	vc->vc_num = num;
 	vc->vc_display_fg = &master_display_fg;
-	if (vc->uni_pagedict_loc)
-		con_free_unimap(vc);
-	vc->uni_pagedict_loc = &vc->uni_pagedict;
-	vc->uni_pagedict = NULL;
 	vc->vc_hi_font_mask = 0;
 	vc->vc_complement_mask = 0;
 	vc->vc_can_do_color = 0;
@@ -1069,9 +816,6 @@ int vc_allocate(unsigned int currcons)	/* return 0 on success */
 
 	visual_init(vc, currcons, 1);
 
-	if (!*vc->uni_pagedict_loc)
-		con_set_default_unimap(vc);
-
 	err = -EINVAL;
 	if (vc->vc_cols > VC_MAXCOL || vc->vc_rows > VC_MAXROW ||
 	    vc->vc_screenbuf_size > KMALLOC_MAX_SIZE || !vc->vc_screenbuf_size)
@@ -1134,7 +878,6 @@ static int vc_do_resize(struct tty_struct *tty, struct vc_data *vc,
 	unsigned int new_cols, new_rows, new_row_size, new_screen_size;
 	unsigned int user;
 	unsigned short *oldscreen, *newscreen;
-	u32 **new_uniscr = NULL;
 
 	WARN_CONSOLE_UNLOCKED();
 
@@ -1178,14 +921,6 @@ static int vc_do_resize(struct tty_struct *tty, struct vc_data *vc,
 	if (!newscreen)
 		return -ENOMEM;
 
-	if (vc->vc_uni_lines) {
-		new_uniscr = vc_uniscr_alloc(new_cols, new_rows);
-		if (!new_uniscr) {
-			kfree(newscreen);
-			return -ENOMEM;
-		}
-	}
-
 	if (vc_is_sel(vc))
 		clear_selection();
 
@@ -1195,7 +930,6 @@ static int vc_do_resize(struct tty_struct *tty, struct vc_data *vc,
 	err = resize_screen(vc, new_cols, new_rows, user);
 	if (err) {
 		kfree(newscreen);
-		vc_uniscr_free(new_uniscr);
 		return err;
 	}
 
@@ -1228,11 +962,6 @@ static int vc_do_resize(struct tty_struct *tty, struct vc_data *vc,
 	} else
 		first_copied_row = 0;
 	end = old_origin + old_row_size * min(old_rows, new_rows);
-
-	vc_uniscr_copy_area(new_uniscr, new_cols, new_rows,
-			    vc->vc_uni_lines, rlth/2, first_copied_row,
-			    min(old_rows, new_rows));
-	vc_uniscr_set(vc, new_uniscr);
 
 	update_attr(vc);
 
@@ -1331,9 +1060,7 @@ struct vc_data *vc_deallocate(unsigned int currcons)
 		atomic_notifier_call_chain(&vt_notifier_list, VT_DEALLOCATE, &param);
 		vcs_remove_sysfs(currcons);
 		visual_deinit(vc);
-		con_free_unimap(vc);
 		put_pid(vc->vt_pid);
-		vc_uniscr_set(vc, NULL);
 		kfree(vc->vc_screenbuf);
 		vc_cons[currcons].d = NULL;
 	}
@@ -1489,16 +1216,10 @@ static void csi_J(struct vc_data *vc, int vpar)
 
 	switch (vpar) {
 		case 0:	/* erase from cursor to end of display */
-			vc_uniscr_clear_line(vc, vc->state.x,
-					     vc->vc_cols - vc->state.x);
-			vc_uniscr_clear_lines(vc, vc->state.y + 1,
-					      vc->vc_rows - vc->state.y - 1);
 			count = (vc->vc_scr_end - vc->vc_pos) >> 1;
 			start = (unsigned short *)vc->vc_pos;
 			break;
 		case 1:	/* erase from start to cursor */
-			vc_uniscr_clear_line(vc, 0, vc->state.x + 1);
-			vc_uniscr_clear_lines(vc, 0, vc->state.y);
 			count = ((vc->vc_pos - vc->vc_origin) >> 1) + 1;
 			start = (unsigned short *)vc->vc_origin;
 			break;
@@ -1506,7 +1227,6 @@ static void csi_J(struct vc_data *vc, int vpar)
 			flush_scrollback(vc);
 			fallthrough;
 		case 2: /* erase whole display */
-			vc_uniscr_clear_lines(vc, 0, vc->vc_rows);
 			count = vc->vc_cols * vc->vc_rows;
 			start = (unsigned short *)vc->vc_origin;
 			break;
@@ -1541,7 +1261,6 @@ static void csi_K(struct vc_data *vc, int vpar)
 		default:
 			return;
 	}
-	vc_uniscr_clear_line(vc, vc->state.x + offset, count);
 	scr_memsetw(start + offset, vc->vc_video_erase_char, 2 * count);
 	vc->vc_need_wrap = 0;
 	if (con_should_update(vc))
@@ -1558,7 +1277,6 @@ static void csi_X(struct vc_data *vc, unsigned int vpar)
 
 	count = min(vpar, vc->vc_cols - vc->state.x);
 
-	vc_uniscr_clear_line(vc, vc->state.x, count);
 	scr_memsetw((unsigned short *)vc->vc_pos, vc->vc_video_erase_char, 2 * count);
 	if (con_should_update(vc))
 		vc->vc_sw->con_clear(vc, vc->state.y, vc->state.x, 1, count);
@@ -1693,29 +1411,8 @@ static void csi_m(struct vc_data *vc)
 		case 7:
 			vc->state.reverse = true;
 			break;
-		case 10: /* ANSI X3.64-1979 (SCO-ish?)
-			  * Select primary font, don't display control chars if
-			  * defined, don't set bit 8 on output.
-			  */
-			vc->vc_translate = set_translate(vc->state.Gx_charset[vc->state.charset], vc);
-			vc->vc_disp_ctrl = 0;
-			vc->vc_toggle_meta = 0;
-			break;
-		case 11: /* ANSI X3.64-1979 (SCO-ish?)
-			  * Select first alternate font, lets chars < 32 be
-			  * displayed as ROM chars.
-			  */
-			vc->vc_translate = set_translate(IBMPC_MAP, vc);
-			vc->vc_disp_ctrl = 1;
-			vc->vc_toggle_meta = 0;
-			break;
-		case 12: /* ANSI X3.64-1979 (SCO-ish?)
-			  * Select second alternate font, toggle high bit
-			  * before displaying as ROM char.
-			  */
-			vc->vc_translate = set_translate(IBMPC_MAP, vc);
-			vc->vc_disp_ctrl = 1;
-			vc->vc_toggle_meta = 1;
+		case 10: case 12: case 11:
+			/* functionality removed */
 			break;
 		case 22:
 			vc->state.intensity = VCI_NORMAL;
@@ -2001,8 +1698,6 @@ static void restore_cur(struct vc_data *vc)
 	memcpy(&vc->state, &vc->saved_state, sizeof(vc->state));
 
 	gotoxy(vc, vc->state.x, vc->state.y);
-	vc->vc_translate = set_translate(vc->state.Gx_charset[vc->state.charset],
-			vc);
 	update_attr(vc);
 	vc->vc_need_wrap = 0;
 }
@@ -2020,9 +1715,6 @@ static void reset_terminal(struct vc_data *vc, int do_clear)
 	vc->vc_bottom		= vc->vc_rows;
 	vc->vc_state		= ESnormal;
 	vc->vc_priv		= EPecma;
-	vc->vc_translate	= set_translate(LAT1_MAP, vc);
-	vc->state.Gx_charset[0]	= LAT1_MAP;
-	vc->state.Gx_charset[1]	= GRAF_MAP;
 	vc->state.charset	= 0;
 	vc->vc_need_wrap	= 0;
 	vc->vc_report_mouse	= 0;
@@ -2058,29 +1750,6 @@ static void reset_terminal(struct vc_data *vc, int do_clear)
 	save_cur(vc);
 	if (do_clear)
 	    csi_J(vc, 2);
-}
-
-static void vc_setGx(struct vc_data *vc, unsigned int which, int c)
-{
-	unsigned char *charset = &vc->state.Gx_charset[which];
-
-	switch (c) {
-	case '0':
-		*charset = GRAF_MAP;
-		break;
-	case 'B':
-		*charset = LAT1_MAP;
-		break;
-	case 'U':
-		*charset = IBMPC_MAP;
-		break;
-	case 'K':
-		*charset = USER_MAP;
-		break;
-	}
-
-	if (vc->state.charset == which)
-		vc->vc_translate = set_translate(*charset, vc);
 }
 
 /* is this state an ANSI control string? */
@@ -2134,12 +1803,10 @@ static void do_con_trol(struct tty_struct *tty, struct vc_data *vc, int c)
 		return;
 	case 14:
 		vc->state.charset = 1;
-		vc->vc_translate = set_translate(vc->state.Gx_charset[1], vc);
 		vc->vc_disp_ctrl = 1;
 		return;
 	case 15:
 		vc->state.charset = 0;
-		vc->vc_translate = set_translate(vc->state.Gx_charset[0], vc);
 		vc->vc_disp_ctrl = 0;
 		return;
 	case 24: case 26:
@@ -2479,12 +2146,8 @@ static void do_con_trol(struct tty_struct *tty, struct vc_data *vc, int c)
 			do_update_region(vc, vc->vc_origin, vc->vc_screenbuf_size / 2);
 		}
 		return;
-	case ESsetG0:
-		vc_setGx(vc, 0, c);
-		vc->vc_state = ESnormal;
-		return;
-	case ESsetG1:
-		vc_setGx(vc, 1, c);
+	case ESsetG0: case ESsetG1:
+		/* functionality removed */
 		vc->vc_state = ESnormal;
 		return;
 	case ESapc:
@@ -2553,19 +2216,6 @@ static void con_flush(struct vc_data *vc, struct vc_draw_region *draw)
 	draw->x = -1;
 }
 
-static inline int vc_translate_ascii(const struct vc_data *vc, int c)
-{
-	if (IS_ENABLED(CONFIG_CONSOLE_TRANSLATIONS)) {
-		if (vc->vc_toggle_meta)
-			c |= 0x80;
-
-		return vc->vc_translate[c];
-	}
-
-	return c;
-}
-
-
 /**
  * vc_sanitize_unicode -- Replace invalid Unicode code points with U+FFFD
  * @c: the received character, or U+FFFD for invalid sequences.
@@ -2579,7 +2229,7 @@ static inline int vc_sanitize_unicode(const int c)
 }
 
 /**
- * vc_translate_unicode -- Combine UTF-8 into Unicode in @vc_utf_char
+ * vc_decode_utf8 -- Combine UTF-8 into Unicode in @vc_utf_char
  * @vc: virtual console
  * @c: character to translate
  * @rescan: we return true if we need more (continuation) data
@@ -2588,7 +2238,7 @@ static inline int vc_sanitize_unicode(const int c)
  * @vc_utf_count is the number of continuation bytes still expected to arrive.
  * @vc_npar is the number of continuation bytes arrived so far.
  */
-static int vc_translate_unicode(struct vc_data *vc, int c, bool *rescan)
+static int vc_decode_utf8(struct vc_data *vc, unsigned char c, bool *rescan)
 {
 	static const u32 utf8_length_changes[] = {
 		0x0000007f, 0x000007ff, 0x0000ffff,
@@ -2654,17 +2304,21 @@ need_more_bytes:
 	return -1;
 }
 
-static int vc_translate(struct vc_data *vc, int *c, bool *rescan)
+static int vc_translate(struct vc_data *vc, unsigned char c, bool *rescan)
 {
 	/* Do no translation at all in control states */
 	if (vc->vc_state != ESnormal)
-		return *c;
+		return c;
 
 	if (vc->vc_utf && !vc->vc_disp_ctrl)
-		return *c = vc_translate_unicode(vc, *c, rescan);
+		return vc_decode_utf8(vc, c, rescan);
 
-	/* no utf or alternate charset mode */
-	return vc_translate_ascii(vc, *c);
+	if (vc->vc_toggle_meta)
+		return c | 0x80;
+
+
+
+	return c;
 }
 
 static inline unsigned char vc_invert_attr(const struct vc_data *vc)
@@ -2682,7 +2336,7 @@ static inline unsigned char vc_invert_attr(const struct vc_data *vc)
 		((vc->vc_attr & 0x07) << 4);
 }
 
-static bool vc_is_control(struct vc_data *vc, int tc, int c)
+static bool vc_is_control(struct vc_data *vc, int c)
 {
 	/*
 	 * A bitmap for codes <32. A bit of 1 indicates that the code
@@ -2697,7 +2351,7 @@ static bool vc_is_control(struct vc_data *vc, int tc, int c)
 	if (vc->vc_state != ESnormal)
 		return true;
 
-	if (!tc)
+	if (!c)
 		return true;
 
 	/*
@@ -2735,12 +2389,13 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 	bool inverse = false;
 
 	if (vc->vc_utf && !vc->vc_disp_ctrl) {
-		if (is_double_width(c))
+		if (is_double_width(c)) {
 			width = 2;
+			next_c = ' ';
+		}
 	}
 
 	/* Now try to find out how to display it */
-	tc = conv_uni_to_pc(vc, tc);
 	if (tc & ~charmask) {
 		if (tc == -1 || tc == -2)
 			return -1; /* nothing to display */
@@ -2758,24 +2413,14 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 			 */
 			tc = c;
 		} else {
-			/*
-			 * Display U+FFFD. If it's not found, display an inverse
-			 * question mark.
-			 */
-			tc = conv_uni_to_pc(vc, 0xfffd);
-			if (tc < 0) {
-				inverse = true;
-				tc = conv_uni_to_pc(vc, '?');
-				if (tc < 0)
-					tc = '?';
+			inverse = true;
+			tc = '?';
 
-				vc_attr = vc_invert_attr(vc);
-				con_flush(vc, draw);
-			}
+			vc_attr = vc_invert_attr(vc);
+			con_flush(vc, draw);
 		}
 	}
 
-	next_c = c;
 	while (1) {
 		if (vc->vc_need_wrap || vc->vc_decim)
 			con_flush(vc, draw);
@@ -2785,7 +2430,6 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 		}
 		if (vc->vc_decim)
 			insert_char(vc, 1);
-		vc_uniscr_putc(vc, next_c);
 
 		if (himask)
 			tc = ((tc & 0x100) ? himask : 0) |
@@ -2809,11 +2453,7 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 		if (!--width)
 			break;
 
-		/* A space is printed in the second column */
-		tc = conv_uni_to_pc(vc, ' ');
-		if (tc < 0)
-			tc = ' ';
-		next_c = ' ';
+		tc = next_c;
 	}
 	notify_write(vc, c);
 
@@ -2829,7 +2469,7 @@ static int do_con_write(struct tty_struct *tty, const unsigned char *buf, int co
 	struct vc_draw_region draw = {
 		.x = -1,
 	};
-	int c, tc, n = 0;
+	int n = 0;
 	unsigned int currcons;
 	struct vc_data *vc;
 	struct vt_notifier_param param;
@@ -2862,15 +2502,22 @@ static int do_con_write(struct tty_struct *tty, const unsigned char *buf, int co
 	param.vc = vc;
 
 	while (!tty->flow.stopped && count) {
-		int orig = *buf;
+		int orig = *buf, c = *buf, tc;
 		buf++;
 		n++;
 		count--;
+
+		if (vc_is_control(vc, c)) {
+			con_flush(vc, &draw);
+			do_con_trol(tty, vc, orig);
+			continue;
+		}
+
 rescan_last_byte:
 		c = orig;
 		rescan = false;
 
-		tc = vc_translate(vc, &c, &rescan);
+		tc = vc_translate(vc, c, &rescan);
 		if (tc == -1)
 			continue;
 
@@ -2878,12 +2525,6 @@ rescan_last_byte:
 		if (atomic_notifier_call_chain(&vt_notifier_list, VT_PREWRITE,
 					&param) == NOTIFY_STOP)
 			continue;
-
-		if (vc_is_control(vc, tc, c)) {
-			con_flush(vc, &draw);
-			do_con_trol(tty, vc, orig);
-			continue;
-		}
 
 		if (vc_con_write_normal(vc, tc, c, &draw) < 0)
 			continue;
@@ -3062,7 +2703,6 @@ static void vt_console_print(struct console *co, const char *b, unsigned count)
 			if (c == 10 || c == 13)
 				continue;
 		}
-		vc_uniscr_putc(vc, c);
 		scr_writew((vc->vc_attr << 8) + c, (unsigned short *)vc->vc_pos);
 		notify_write(vc, c);
 		cnt++;
@@ -3553,7 +3193,6 @@ int __init vty_init(const struct file_operations *console_fops)
 	if (tty_register_driver(console_driver))
 		panic("Couldn't register console driver\n");
 	kbd_init();
-	console_map_init();
 #ifdef CONFIG_MDA_CONSOLE
 	mda_console_init();
 #endif
@@ -4688,17 +4327,6 @@ u16 screen_glyph(const struct vc_data *vc, int offset)
 	return c;
 }
 EXPORT_SYMBOL_GPL(screen_glyph);
-
-u32 screen_glyph_unicode(const struct vc_data *vc, int n)
-{
-	u32 **uni_lines = vc->vc_uni_lines;
-
-	if (uni_lines)
-		return uni_lines[n / vc->vc_cols][n % vc->vc_cols];
-
-	return inverse_translate(vc, screen_glyph(vc, n * 2), true);
-}
-EXPORT_SYMBOL_GPL(screen_glyph_unicode);
 
 /* used by vcs - note the word offset */
 unsigned short *screen_pos(const struct vc_data *vc, int w_offset, bool viewed)

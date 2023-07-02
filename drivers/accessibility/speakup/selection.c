@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/slab.h> /* for kmalloc */
-#include <linux/consolemap.h>
 #include <linux/interrupt.h>
 #include <linux/sched.h>
 #include <linux/device.h> /* for dev_warn */

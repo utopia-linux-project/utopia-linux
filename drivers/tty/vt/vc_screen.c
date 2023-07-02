@@ -10,12 +10,6 @@
  *	Attribute/character pair is in native endianity.
  *            [minor: N+128]
  *
- * /dev/vcsuN: similar to /dev/vcsaN but using 4-byte unicode values
- *	instead of 1-byte screen glyph values.
- *            [minor: N+64]
- *
- * /dev/vcsuaN: same idea as /dev/vcsaN for unicode (not yet implemented).
- *
  * This replaces screendump and part of selection, so that the system
  * administrator can control access using file system permissions.
  *
@@ -57,7 +51,7 @@
  * Our minor space:
  *
  *   0 ... 63	glyph mode without attributes
- *  64 ... 127	unicode mode without attributes
+ *  64 ... 127	unused (was unicode mode without attributes)
  * 128 ... 191	glyph mode with attributes
  * 192 ... 255	unused (reserved for unicode with attributes)
  *
@@ -245,6 +239,7 @@ static loff_t vcs_lseek(struct file *file, loff_t offset, int orig)
 	return fixed_size_llseek(file, offset, orig, size);
 }
 
+#if 0
 static int vcs_read_buf_uni(struct vc_data *vc, char *con_buf,
 		unsigned int pos, unsigned int count, bool viewed)
 {
@@ -272,6 +267,7 @@ static int vcs_read_buf_uni(struct vc_data *vc, char *con_buf,
 
 	return 0;
 }
+#endif
 
 static void vcs_read_buf_noattr(const struct vc_data *vc, char *con_buf,
 		unsigned int pos, unsigned int count, bool viewed)
@@ -433,9 +429,11 @@ vcs_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 		 */
 
 		if (uni_mode) {
+#if 0
 			ret = vcs_read_buf_uni(vc, con_buf, pos, this_round,
 					viewed);
 			if (ret)
+#endif
 				break;
 		} else if (!attr) {
 			vcs_read_buf_noattr(vc, con_buf, pos, this_round,

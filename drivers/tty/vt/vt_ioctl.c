@@ -24,7 +24,6 @@
 #include <linux/major.h>
 #include <linux/fs.h>
 #include <linux/console.h>
-#include <linux/consolemap.h>
 #include <linux/signal.h>
 #include <linux/suspend.h>
 #include <linux/timex.h>
@@ -486,27 +485,6 @@ static int vt_k_ioctl(struct tty_struct *tty, unsigned int cmd,
 	return 0;
 }
 
-static inline int do_unimap_ioctl(int cmd, struct unimapdesc __user *user_ud,
-		bool perm, struct vc_data *vc)
-{
-	struct unimapdesc tmp;
-
-	if (copy_from_user(&tmp, user_ud, sizeof tmp))
-		return -EFAULT;
-	switch (cmd) {
-	case PIO_UNIMAP:
-		if (!perm)
-			return -EPERM;
-		return con_set_unimap(vc, tmp.entry_ct, tmp.entries);
-	case GIO_UNIMAP:
-		if (!perm && fg_console != vc->vc_num)
-			return -EPERM;
-		return con_get_unimap(vc, tmp.entry_ct, &(user_ud->entry_ct),
-				tmp.entries);
-	}
-	return 0;
-}
-
 static int vt_io_ioctl(struct vc_data *vc, unsigned int cmd, void __user *up,
 		bool perm)
 {
@@ -518,32 +496,6 @@ static int vt_io_ioctl(struct vc_data *vc, unsigned int cmd, void __user *up,
 
 	case GIO_CMAP:
 		return con_get_cmap(up);
-
-	case PIO_SCRNMAP:
-		if (!perm)
-			return -EPERM;
-		return con_set_trans_old(up);
-
-	case GIO_SCRNMAP:
-		return con_get_trans_old(up);
-
-	case PIO_UNISCRNMAP:
-		if (!perm)
-			return -EPERM;
-		return con_set_trans_new(up);
-
-	case GIO_UNISCRNMAP:
-		return con_get_trans_new(up);
-
-	case PIO_UNIMAPCLR:
-		if (!perm)
-			return -EPERM;
-		con_clear_unimap(vc);
-		break;
-
-	case PIO_UNIMAP:
-	case GIO_UNIMAP:
-		return do_unimap_ioctl(cmd, up, perm, vc);
 
 	default:
 		return -ENOIOCTLCMD;
@@ -1027,34 +979,6 @@ compat_kdfontop_ioctl(struct compat_console_font_op __user *fontop,
 	return 0;
 }
 
-struct compat_unimapdesc {
-	unsigned short entry_ct;
-	compat_caddr_t entries;
-};
-
-static inline int
-compat_unimap_ioctl(unsigned int cmd, struct compat_unimapdesc __user *user_ud,
-			 int perm, struct vc_data *vc)
-{
-	struct compat_unimapdesc tmp;
-	struct unipair __user *tmp_entries;
-
-	if (copy_from_user(&tmp, user_ud, sizeof tmp))
-		return -EFAULT;
-	tmp_entries = compat_ptr(tmp.entries);
-	switch (cmd) {
-	case PIO_UNIMAP:
-		if (!perm)
-			return -EPERM;
-		return con_set_unimap(vc, tmp.entry_ct, tmp_entries);
-	case GIO_UNIMAP:
-		if (!perm && fg_console != vc->vc_num)
-			return -EPERM;
-		return con_get_unimap(vc, tmp.entry_ct, &(user_ud->entry_ct), tmp_entries);
-	}
-	return 0;
-}
-
 long vt_compat_ioctl(struct tty_struct *tty,
 	     unsigned int cmd, unsigned long arg)
 {
@@ -1078,10 +1002,6 @@ long vt_compat_ioctl(struct tty_struct *tty,
 
 	case KDFONTOP:
 		return compat_kdfontop_ioctl(up, perm, &op, vc);
-
-	case PIO_UNIMAP:
-	case GIO_UNIMAP:
-		return compat_unimap_ioctl(cmd, up, perm, vc);
 
 	/*
 	 * all these treat 'arg' as an integer

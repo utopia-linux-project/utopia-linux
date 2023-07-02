@@ -25,7 +25,6 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/consolemap.h>
 #include <linux/init.h>
 #include <linux/input.h>
 #include <linux/jiffies.h>
@@ -65,6 +64,16 @@ static inline int kbd_defleds(void)
 #endif
 
 #define KBD_DEFLOCK 0
+
+static inline int conv_uni_to_8bit(u32 c)
+{
+	return (c > 0xff) ? '?' : (char)(c & 0xff);
+}
+
+static inline u32 conv_8bit_to_uni(unsigned char c)
+{
+	return c;
+}
 
 /*
  * Handler Tables.

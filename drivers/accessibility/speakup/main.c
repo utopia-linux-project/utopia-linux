@@ -29,7 +29,6 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/types.h>
-#include <linux/consolemap.h>
 
 #include <linux/spinlock.h>
 #include <linux/notifier.h>
@@ -471,7 +470,7 @@ static u16 get_char(struct vc_data *vc, u16 *pos, u_char *attribs)
 			c |= 0x100;
 		}
 
-		ch = inverse_translate(vc, c, true);
+		ch = c;
 		*attribs = (w & 0xff00) >> 8;
 	}
 	return ch;

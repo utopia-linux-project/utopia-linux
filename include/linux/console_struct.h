@@ -17,8 +17,6 @@
 #include <linux/vt.h>
 #include <linux/workqueue.h>
 
-struct uni_pagedict;
-
 #define NPAR 16
 #define VC_TABSTOPS_COUNT	256U
 
@@ -34,7 +32,6 @@ enum vc_intensity {
  * @x: cursor's x-position
  * @y: cursor's y-position
  * @color: foreground & background colors
- * @Gx_charset: what's G0/G1 slot set to (like GRAF_MAP, LAT1_MAP)
  * @charset: what character set to use (0=G0 or 1=G1)
  * @intensity: see enum vc_intensity for values
  * @reverse: reversed foreground/background colors
@@ -47,7 +44,6 @@ struct vc_state {
 
 	unsigned char	color;
 
-	unsigned char	Gx_charset[2];
 	unsigned int	charset		: 1;
 
 	/* attribute flags */
@@ -150,15 +146,11 @@ struct vc_data {
 		 int	vc_utf_char;
 	DECLARE_BITMAP(vc_tab_stop, VC_TABSTOPS_COUNT);	/* Tab stops. 256 columns. */
 	unsigned char   vc_palette[16*3];       /* Colour palette for VGA+ */
-	unsigned short * vc_translate;
 	unsigned int    vc_resize_user;         /* resize request from user */
 	unsigned int	vc_bell_pitch;		/* Console bell pitch */
 	unsigned int	vc_bell_duration;	/* Console bell duration */
 	unsigned short	vc_cur_blink_ms;	/* Cursor blink duration */
 	struct vc_data **vc_display_fg;		/* [!] Ptr to var holding fg console for this display */
-	struct uni_pagedict *uni_pagedict;
-	struct uni_pagedict **uni_pagedict_loc; /* [!] Location of uni_pagedict variable for this console */
-	u32 **vc_uni_lines;			/* unicode screen content */
 	/* additional information is in vt_kern.h */
 };
 

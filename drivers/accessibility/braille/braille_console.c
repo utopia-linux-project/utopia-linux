@@ -16,7 +16,6 @@
 
 #include <linux/selection.h>
 #include <linux/vt_kern.h>
-#include <linux/consolemap.h>
 
 #include <linux/keyboard.h>
 #include <linux/kbd_kern.h>
@@ -131,7 +130,7 @@ static void vc_refresh(struct vc_data *vc)
 	for (i = 0; i < WIDTH; i++) {
 		u16 glyph = screen_glyph(vc,
 				2 * (vc_x + i) + vc_y * vc->vc_size_row);
-		buf[i] = inverse_translate(vc, glyph, true);
+		buf[i] = glyph;
 	}
 	braille_write(buf);
 }

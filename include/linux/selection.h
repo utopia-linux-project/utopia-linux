@@ -47,10 +47,4 @@ extern u16 vcs_scr_readw(const struct vc_data *vc, const u16 *org);
 extern void vcs_scr_writew(struct vc_data *vc, u16 val, u16 *org);
 extern void vcs_scr_updated(struct vc_data *vc);
 
-extern int vc_uniscr_check(struct vc_data *vc);
-extern void vc_uniscr_copy_line(const struct vc_data *vc, void *dest,
-				bool viewed,
-				unsigned int row, unsigned int col,
-				unsigned int nr);
-
 #endif
