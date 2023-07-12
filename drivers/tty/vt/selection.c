@@ -63,12 +63,8 @@ static inline void highlight_pointer(const int where)
 }
 
 static u32
-sel_pos(int n, bool unicode)
+sel_pos(int n)
 {
-#if 0
-	if (unicode)
-		return screen_glyph_unicode(vc_sel.cons, n / 2);
-#endif
 	return screen_glyph(vc_sel.cons, n);
 }
 
@@ -186,14 +182,19 @@ int set_selection_user(const struct tiocl_selection __user *sel,
 	return set_selection_kernel(&v, tty);
 }
 
-static int vc_selection_store_chars(struct vc_data *vc, bool unicode)
+#ifdef CONFIG_UTOPIA
+#define CELLDATASIZE 12
+#else
+#define CELLDATASIZE 1
+#endif
+
+static int vc_selection_store_chars(struct vc_data *vc)
 {
 	char *bp, *obp;
 	unsigned int i;
 
 	/* Allocate a new buffer before freeing the old one ... */
-	/* chars can take up to 4 bytes with unicode */
-	bp = kmalloc_array((vc_sel.end - vc_sel.start) / 2 + 1, unicode ? 4 : 1,
+	bp = kmalloc_array((vc_sel.end - vc_sel.start) / 2 + 1, CELLDATASIZE,
 			   GFP_KERNEL | __GFP_NOWARN);
 	if (!bp) {
 		printk(KERN_WARNING "selection: kmalloc() failed\n");
@@ -205,11 +206,12 @@ static int vc_selection_store_chars(struct vc_data *vc, bool unicode)
 
 	obp = bp;
 	for (i = vc_sel.start; i <= vc_sel.end; i += 2) {
-		u32 c = sel_pos(i, unicode);
-		if (unicode)
-			bp += store_utf8(c, bp);
-		else
-			*bp++ = c;
+		u32 c = sel_pos(i);
+#ifdef CONFIG_UTOPIA
+		bp += store_utf8(c, bp);
+#else
+		*bp++ = c;
+#endif
 		if (!is_space_on_vt(c))
 			obp = bp;
 		if (!((i + 2) % vc->vc_size_row)) {
@@ -231,7 +233,6 @@ static int vc_do_selection(struct vc_data *vc, unsigned short mode, int ps,
 		int pe)
 {
 	int new_sel_start, new_sel_end, spc;
-	bool unicode = vt_do_kdgkbmode(fg_console) == K_UNICODE;
 
 	switch (mode) {
 	case TIOCL_SELCHAR:	/* character-by-character selection */
@@ -239,20 +240,20 @@ static int vc_do_selection(struct vc_data *vc, unsigned short mode, int ps,
 		new_sel_end = pe;
 		break;
 	case TIOCL_SELWORD:	/* word-by-word selection */
-		spc = is_space_on_vt(sel_pos(ps, unicode));
+		spc = is_space_on_vt(sel_pos(ps));
 		for (new_sel_start = ps; ; ps -= 2) {
-			if ((spc && !is_space_on_vt(sel_pos(ps, unicode))) ||
-			    (!spc && !inword(sel_pos(ps, unicode))))
+			if ((spc && !is_space_on_vt(sel_pos(ps))) ||
+			    (!spc && !inword(sel_pos(ps))))
 				break;
 			new_sel_start = ps;
 			if (!(ps % vc->vc_size_row))
 				break;
 		}
 
-		spc = is_space_on_vt(sel_pos(pe, unicode));
+		spc = is_space_on_vt(sel_pos(pe));
 		for (new_sel_end = pe; ; pe += 2) {
-			if ((spc && !is_space_on_vt(sel_pos(pe, unicode))) ||
-			    (!spc && !inword(sel_pos(pe, unicode))))
+			if ((spc && !is_space_on_vt(sel_pos(pe))) ||
+			    (!spc && !inword(sel_pos(pe))))
 				break;
 			new_sel_end = pe;
 			if (!((pe + 2) % vc->vc_size_row))
@@ -277,12 +278,12 @@ static int vc_do_selection(struct vc_data *vc, unsigned short mode, int ps,
 	/* select to end of line if on trailing space */
 	if (new_sel_end > new_sel_start &&
 		!atedge(new_sel_end, vc->vc_size_row) &&
-		is_space_on_vt(sel_pos(new_sel_end, unicode))) {
+		is_space_on_vt(sel_pos(new_sel_end))) {
 		for (pe = new_sel_end + 2; ; pe += 2)
-			if (!is_space_on_vt(sel_pos(pe, unicode)) ||
+			if (!is_space_on_vt(sel_pos(pe)) ||
 			    atedge(pe, vc->vc_size_row))
 				break;
-		if (is_space_on_vt(sel_pos(pe, unicode)))
+		if (is_space_on_vt(sel_pos(pe)))
 			new_sel_end = pe;
 	}
 	if (vc_sel.start == -1)	/* no current selection */
@@ -311,7 +312,7 @@ static int vc_do_selection(struct vc_data *vc, unsigned short mode, int ps,
 	vc_sel.start = new_sel_start;
 	vc_sel.end = new_sel_end;
 
-	return vc_selection_store_chars(vc, unicode);
+	return vc_selection_store_chars(vc);
 }
 
 static int vc_selection(struct vc_data *vc, struct tiocl_selection *v,
