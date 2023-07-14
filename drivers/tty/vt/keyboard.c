@@ -442,21 +442,25 @@ static unsigned int handle_diacr(struct vc_data *vc, unsigned int ch)
 
 	diacr = 0;
 
-	if ((d & ~0xff) == BRL_UC_ROW) {
-		if ((ch & ~0xff) == BRL_UC_ROW)
-			return d | ch;
-	} else {
-		for (i = 0; i < accent_table_size; i++)
-			if (accent_table[i].diacr == d && accent_table[i].base == ch)
-				return accent_table[i].result;
-	}
+	for (i = 0; i < accent_table_size; i++)
+		if (accent_table[i].diacr == d && accent_table[i].base == ch)
+			return accent_table[i].result;
 
-	if (ch == ' ' || ch == (BRL_UC_ROW|0) || ch == d)
+	if (ch == ' ' || ch == d)
 		return d;
 
 	put_queue(vc, d);
 
 	return ch;
+}
+
+static unsigned int handle_diacr_braille(struct vc_data *vc, unsigned int ch)
+{
+	unsigned int d = diacr;
+
+	diacr = 0;
+
+	return d | ch;
 }
 
 /*
@@ -676,6 +680,19 @@ static void k_self(struct vc_data *vc, unsigned char value, char up_flag)
 	put_queue(vc, value);
 }
 
+#define BRAILLE_ROW_UTOPIA 0xfc00
+
+static void k_self_braille(struct vc_data *vc, unsigned char value, char up_flag)
+{
+	if (up_flag)
+		return;		/* no action, if this is a key release */
+
+	if (diacr)
+		value = handle_diacr_braille(vc, value);
+
+	put_queue(vc, 0xf0000 | BRAILLE_ROW_UTOPIA | (value & 0xff));
+}
+
 /*
  * Handle dead key. Note that we now may have several
  * dead keys modifying the same character. Very useful
@@ -687,6 +704,14 @@ static void k_dead(struct vc_data *vc, unsigned char value, char up_flag)
 		return;
 
 	diacr = (diacr ? handle_diacr(vc, value) : value);
+}
+
+static void k_dead_braille(struct vc_data *vc, unsigned char value, char up_flag)
+{
+	if (up_flag)
+		return;
+
+	diacr = (diacr ? handle_diacr_braille(vc, value) : value);
 }
 
 /*
@@ -932,13 +957,12 @@ static void k_brlcommit(struct vc_data *vc, unsigned int pattern, char up_flag)
 	static unsigned committed;
 
 	if (!brl_nbchords)
-		k_dead(vc, BRL_UC_ROW | pattern, up_flag);
+		k_dead_braille(vc, pattern, up_flag);
 	else {
 		committed |= pattern;
 		chords++;
 		if (chords == brl_nbchords) {
-			// TODO: Fix Braille. What code do we generate?
-			k_self(vc, BRL_UC_ROW | committed, up_flag);
+			k_self_braille(vc, committed, up_flag);
 			chords = 0;
 			committed = 0;
 		}
@@ -951,7 +975,7 @@ static void k_brl(struct vc_data *vc, unsigned char value, char up_flag)
 	static unsigned long releasestart;
 
 	if (!value) {
-		k_self(vc, BRL_UC_ROW, up_flag);
+		k_self_braille(vc, 0, up_flag);
 		return;
 	}
 
