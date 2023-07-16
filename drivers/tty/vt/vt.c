@@ -548,48 +548,12 @@ static void delete_char(struct vc_data *vc, unsigned int nr)
 			vc->vc_cols - vc->state.x);
 }
 
-static int softcursor_original = -1;
-
-static void add_softcursor(struct vc_data *vc)
-{
-	int i = scr_readw((u16 *) vc->vc_pos);
-	u32 type = vc->vc_cursor_type;
-
-	if (!(type & CUR_SW))
-		return;
-	if (softcursor_original != -1)
-		return;
-	softcursor_original = i;
-	i |= CUR_SET(type);
-	i ^= CUR_CHANGE(type);
-	if ((type & CUR_ALWAYS_BG) &&
-			(softcursor_original & CUR_BG) == (i & CUR_BG))
-		i ^= CUR_BG;
-	if ((type & CUR_INVERT_FG_BG) && (i & CUR_FG) == ((i & CUR_BG) >> 4))
-		i ^= CUR_FG;
-	scr_writew(i, (u16 *)vc->vc_pos);
-	if (con_should_update(vc))
-		vc->vc_sw->con_putc(vc, i, vc->state.y, vc->state.x);
-}
-
-static void hide_softcursor(struct vc_data *vc)
-{
-	if (softcursor_original != -1) {
-		scr_writew(softcursor_original, (u16 *)vc->vc_pos);
-		if (con_should_update(vc))
-			vc->vc_sw->con_putc(vc, softcursor_original,
-					vc->state.y, vc->state.x);
-		softcursor_original = -1;
-	}
-}
-
 static void hide_cursor(struct vc_data *vc)
 {
 	if (vc_is_sel(vc))
 		clear_selection();
 
 	vc->vc_sw->con_cursor(vc, CM_ERASE);
-	hide_softcursor(vc);
 }
 
 static void set_cursor(struct vc_data *vc)
@@ -599,7 +563,6 @@ static void set_cursor(struct vc_data *vc)
 	if (vc->vc_deccm) {
 		if (vc_is_sel(vc))
 			clear_selection();
-		add_softcursor(vc);
 		if (CUR_SIZE(vc->vc_cursor_type) != CUR_NONE)
 			vc->vc_sw->con_cursor(vc, CM_DRAW);
 	} else
@@ -4415,18 +4378,12 @@ void putconsxy(struct vc_data *vc, unsigned char xy[static const 2])
 
 u16 vcs_scr_readw(const struct vc_data *vc, const u16 *org)
 {
-	if ((unsigned long)org == vc->vc_pos && softcursor_original != -1)
-		return softcursor_original;
 	return scr_readw(org);
 }
 
 void vcs_scr_writew(struct vc_data *vc, u16 val, u16 *org)
 {
 	scr_writew(val, org);
-	if ((unsigned long)org == vc->vc_pos) {
-		softcursor_original = -1;
-		add_softcursor(vc);
-	}
 }
 
 void vcs_scr_updated(struct vc_data *vc)
