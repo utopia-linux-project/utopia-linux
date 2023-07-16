@@ -16,6 +16,11 @@
 #include <asm/types.h>
 #include "fbcon.h"
 
+static inline u16 readcell(const struct vc_cell* p)
+{
+	return p->celldata;
+}
+
 static void tile_bmove(struct vc_data *vc, struct fb_info *info, int sy,
 		       int sx, int dy, int dx, int height, int width)
 {
@@ -38,7 +43,7 @@ static void tile_clear(struct vc_data *vc, struct fb_info *info, int sy,
 	int bgshift = (vc->vc_hi_font_mask) ? 13 : 12;
 	int fgshift = (vc->vc_hi_font_mask) ? 9 : 8;
 
-	rect.index = vc->vc_video_erase_char &
+	rect.index = vc->vc_video_erase.celldata &
 		((vc->vc_hi_font_mask) ? 0x1ff : 0xff);
 	rect.fg = attr_fgcol_ec(fgshift, vc, info);
 	rect.bg = attr_bgcol_ec(bgshift, vc, info);
@@ -52,7 +57,7 @@ static void tile_clear(struct vc_data *vc, struct fb_info *info, int sy,
 }
 
 static void tile_putcs(struct vc_data *vc, struct fb_info *info,
-		       const unsigned short *s, int count, int yy, int xx,
+		       const struct vc_cell *s, int count, int yy, int xx,
 		       int fg, int bg)
 {
 	struct fb_tileblit blit;
@@ -68,7 +73,7 @@ static void tile_putcs(struct vc_data *vc, struct fb_info *info,
 	blit.length = count;
 	blit.indices = (u32 *) fb_get_buffer_offset(info, &info->pixmap, size);
 	for (i = 0; i < count; i++)
-		blit.indices[i] = (u32)(scr_readw(s++) & charmask);
+		blit.indices[i] = (u32)(readcell(s++) & charmask);
 
 	info->tileops->fb_tileblit(info, &blit);
 }

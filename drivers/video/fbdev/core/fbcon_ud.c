@@ -18,7 +18,27 @@
 #include "fbcon.h"
 #include "fbcon_rotate.h"
 
-/*
+static inline u16 readcell(const struct vc_cell* p)
+{
+	return p->celldata;
+}
+
+static inline void writecell(u16 a, struct vc_cell *p)
+{
+	p->celldata = a;
+}
+
+static inline void cellset(struct vc_cell *p, struct vc_cell a, size_t count)
+{
+	while (count--) {
+		*p++ = a;
+	}
+}
+
+static inline void cellmove(struct vc_cell *dest, const struct vc_cell *src, size_t count)
+{
+	memcpy(dest, src, count * sizeof(struct vc_cell));
+}/*
  * Rotation 180 degrees
  */
 
@@ -83,7 +103,7 @@ static void ud_clear(struct vc_data *vc, struct fb_info *info, int sy,
 }
 
 static inline void ud_putcs_aligned(struct vc_data *vc, struct fb_info *info,
-				    const u16 *s, u32 attr, u32 cnt,
+				    const struct vc_cell *s, u32 attr, u32 cnt,
 				    u32 d_pitch, u32 s_pitch, u32 cellsize,
 				    struct fb_image *image, u8 *buf, u8 *dst)
 {
@@ -93,7 +113,7 @@ static inline void ud_putcs_aligned(struct vc_data *vc, struct fb_info *info,
 	u8 *src;
 
 	while (cnt--) {
-		src = ops->fontbuffer + (scr_readw(s--) & charmask)*cellsize;
+		src = ops->fontbuffer + (readcell(s--) & charmask)*cellsize;
 
 		if (attr) {
 			ud_update_attr(buf, src, attr, vc);
@@ -114,7 +134,8 @@ static inline void ud_putcs_aligned(struct vc_data *vc, struct fb_info *info,
 }
 
 static inline void ud_putcs_unaligned(struct vc_data *vc,
-				      struct fb_info *info, const u16 *s,
+				      struct fb_info *info,
+				      const struct vc_cell *s,
 				      u32 attr, u32 cnt, u32 d_pitch,
 				      u32 s_pitch, u32 cellsize,
 				      struct fb_image *image, u8 *buf,
@@ -128,7 +149,7 @@ static inline void ud_putcs_unaligned(struct vc_data *vc,
 	u8 *src;
 
 	while (cnt--) {
-		src = ops->fontbuffer + (scr_readw(s--) & charmask)*cellsize;
+		src = ops->fontbuffer + (readcell(s--) & charmask)*cellsize;
 
 		if (attr) {
 			ud_update_attr(buf, src, attr, vc);
@@ -149,7 +170,7 @@ static inline void ud_putcs_unaligned(struct vc_data *vc,
 }
 
 static void ud_putcs(struct vc_data *vc, struct fb_info *info,
-		      const unsigned short *s, int count, int yy, int xx,
+		      const struct vc_cell *s, int count, int yy, int xx,
 		      int fg, int bg)
 {
 	struct fb_image image;
@@ -160,7 +181,7 @@ static void ud_putcs(struct vc_data *vc, struct fb_info *info,
 	u32 scan_align = info->pixmap.scan_align - 1;
 	u32 buf_align = info->pixmap.buf_align - 1;
 	u32 mod = vc->vc_font.width % 8, cnt, pitch, size;
-	u32 attribute = get_attribute(info, scr_readw(s));
+	u32 attribute = get_attribute(info, readcell(s));
 	u8 *dst, *buf = NULL;
 	u32 vyres = GETVYRES(ops->p, info);
 	u32 vxres = GETVXRES(ops->p, info);
@@ -267,7 +288,7 @@ static void ud_cursor(struct vc_data *vc, struct fb_info *info, int mode,
 
 	cursor.set = 0;
 
- 	c = scr_readw((u16 *) vc->vc_pos);
+	c = readcell(vc->vc_pos);
 	attribute = get_attribute(info, c);
 	src = ops->fontbuffer + ((c & charmask) * (w * vc->vc_font.height));
 

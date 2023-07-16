@@ -53,7 +53,7 @@ static struct vc_selection {
 /* set reverse video on characters s-e of console with selection. */
 static inline void highlight(const int s, const int e)
 {
-	invert_region(vc_sel.cons, s, e-s+2);
+	invert_region(vc_sel.cons, s, e-s+1);
 }
 
 /* use complementary color to show the pointer */
@@ -124,7 +124,7 @@ int sel_loadlut(char __user *p)
 /* does screen address p correspond to character at LH/RH edge of screen? */
 static inline int atedge(const int p, int size_row)
 {
-	return (!(p % size_row)	|| !((p + 2) % size_row));
+	return (!(p % size_row)	|| !((p + 1) % size_row));
 }
 
 /* stores the char in UTF8 and returns the number of bytes used (1-4) */
@@ -194,7 +194,7 @@ static int vc_selection_store_chars(struct vc_data *vc)
 	unsigned int i;
 
 	/* Allocate a new buffer before freeing the old one ... */
-	bp = kmalloc_array((vc_sel.end - vc_sel.start) / 2 + 1, CELLDATASIZE,
+	bp = kmalloc_array(vc_sel.end - vc_sel.start + 1, CELLDATASIZE,
 			   GFP_KERNEL | __GFP_NOWARN);
 	if (!bp) {
 		printk(KERN_WARNING "selection: kmalloc() failed\n");
@@ -205,7 +205,7 @@ static int vc_selection_store_chars(struct vc_data *vc)
 	vc_sel.buffer = bp;
 
 	obp = bp;
-	for (i = vc_sel.start; i <= vc_sel.end; i += 2) {
+	for (i = vc_sel.start; i <= vc_sel.end; i++) {
 		u32 c = sel_pos(i);
 #ifdef CONFIG_UTOPIA
 		bp += store_utf8(c, bp);
@@ -214,7 +214,7 @@ static int vc_selection_store_chars(struct vc_data *vc)
 #endif
 		if (!is_space_on_vt(c))
 			obp = bp;
-		if (!((i + 2) % vc->vc_size_row)) {
+		if (!((i + 1) % vc->vc_cols)) {
 			/* strip trailing blanks from line and add newline,
 			   unless non-space at end of line. */
 			if (obp != bp) {
@@ -241,29 +241,28 @@ static int vc_do_selection(struct vc_data *vc, unsigned short mode, int ps,
 		break;
 	case TIOCL_SELWORD:	/* word-by-word selection */
 		spc = is_space_on_vt(sel_pos(ps));
-		for (new_sel_start = ps; ; ps -= 2) {
+		for (new_sel_start = ps; ; ps--) {
 			if ((spc && !is_space_on_vt(sel_pos(ps))) ||
 			    (!spc && !inword(sel_pos(ps))))
 				break;
 			new_sel_start = ps;
-			if (!(ps % vc->vc_size_row))
+			if (!(ps % vc->vc_cols))
 				break;
 		}
 
 		spc = is_space_on_vt(sel_pos(pe));
-		for (new_sel_end = pe; ; pe += 2) {
+		for (new_sel_end = pe; ; pe++) {
 			if ((spc && !is_space_on_vt(sel_pos(pe))) ||
 			    (!spc && !inword(sel_pos(pe))))
 				break;
 			new_sel_end = pe;
-			if (!((pe + 2) % vc->vc_size_row))
+			if (!((pe + 1) % vc->vc_cols))
 				break;
 		}
 		break;
 	case TIOCL_SELLINE:	/* line-by-line selection */
-		new_sel_start = rounddown(ps, vc->vc_size_row);
-		new_sel_end = rounddown(pe, vc->vc_size_row) +
-			vc->vc_size_row - 2;
+		new_sel_start = rounddown(ps, vc->vc_cols);
+		new_sel_end = rounddown(pe, vc->vc_cols) + vc->vc_cols - 1;
 		break;
 	case TIOCL_SELPOINTER:
 		highlight_pointer(pe);
@@ -277,11 +276,11 @@ static int vc_do_selection(struct vc_data *vc, unsigned short mode, int ps,
 
 	/* select to end of line if on trailing space */
 	if (new_sel_end > new_sel_start &&
-		!atedge(new_sel_end, vc->vc_size_row) &&
+		!atedge(new_sel_end, vc->vc_cols) &&
 		is_space_on_vt(sel_pos(new_sel_end))) {
-		for (pe = new_sel_end + 2; ; pe += 2)
+		for (pe = new_sel_end + 1; ; pe++)
 			if (!is_space_on_vt(sel_pos(pe)) ||
-			    atedge(pe, vc->vc_size_row))
+			    atedge(pe, vc->vc_cols))
 				break;
 		if (is_space_on_vt(sel_pos(pe)))
 			new_sel_end = pe;
@@ -293,16 +292,16 @@ static int vc_do_selection(struct vc_data *vc, unsigned short mode, int ps,
 		if (new_sel_end == vc_sel.end)	/* no action required */
 			return 0;
 		else if (new_sel_end > vc_sel.end)	/* extend to right */
-			highlight(vc_sel.end + 2, new_sel_end);
+			highlight(vc_sel.end + 1, new_sel_end);
 		else				/* contract from right */
-			highlight(new_sel_end + 2, vc_sel.end);
+			highlight(new_sel_end + 1, vc_sel.end);
 	}
 	else if (new_sel_end == vc_sel.end)
 	{
 		if (new_sel_start < vc_sel.start) /* extend to left */
-			highlight(new_sel_start, vc_sel.start - 2);
+			highlight(new_sel_start, vc_sel.start - 1);
 		else				/* contract from left */
-			highlight(vc_sel.start, new_sel_start - 2);
+			highlight(vc_sel.start, new_sel_start - 1);
 	}
 	else	/* some other case; start selection from scratch */
 	{
@@ -339,8 +338,8 @@ static int vc_selection(struct vc_data *vc, struct tiocl_selection *v,
 		return 0;
 	}
 
-	ps = v->ys * vc->vc_size_row + (v->xs << 1);
-	pe = v->ye * vc->vc_size_row + (v->xe << 1);
+	ps = v->ys * vc->vc_cols + v->xs;
+	pe = v->ye * vc->vc_cols + v->xe;
 	if (ps > pe)	/* make vc_sel.start <= vc_sel.end */
 		swap(ps, pe);
 

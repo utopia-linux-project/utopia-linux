@@ -33,7 +33,8 @@ extern unsigned char default_red[];
 extern unsigned char default_grn[];
 extern unsigned char default_blu[];
 
-extern unsigned short *screen_pos(const struct vc_data *vc, int w_offset,
+struct vc_cell;
+extern struct vc_cell *screen_pos(const struct vc_data *vc, int w_offset,
 		bool viewed);
 extern u16 screen_glyph(const struct vc_data *vc, int offset);
 extern u32 screen_glyph_unicode(const struct vc_data *vc, int offset);
@@ -43,8 +44,8 @@ extern void invert_region(struct vc_data *vc, int offset, int count);
 extern void getconsxy(const struct vc_data *vc, unsigned char xy[static 2]);
 extern void putconsxy(struct vc_data *vc, unsigned char xy[static const 2]);
 
-extern u16 vcs_readcell(const struct vc_data *vc, const u16 *org);
-extern void vcs_writecell(struct vc_data *vc, u16 val, u16 *org);
+extern u16 vcs_readcell(const struct vc_data *vc, const struct vc_cell *org);
+extern void vcs_writecell(struct vc_data *vc, u16 val, struct vc_cell *org);
 extern void vcs_scr_updated(struct vc_data *vc);
 
 #endif

@@ -272,7 +272,7 @@ static int vcs_read_buf_uni(struct vc_data *vc, char *con_buf,
 static void vcs_read_buf_noattr(const struct vc_data *vc, char *con_buf,
 		unsigned int pos, unsigned int count, bool viewed)
 {
-	u16 *org;
+	struct vc_cell *org;
 	unsigned int col, maxcol = vc->vc_cols;
 
 	org = screen_pos(vc, pos, viewed);
@@ -293,7 +293,8 @@ static unsigned int vcs_read_buf(const struct vc_data *vc, char *con_buf,
 		unsigned int pos, unsigned int count, bool viewed,
 		unsigned int *skip)
 {
-	u16 *org, *con_buf16;
+	struct vc_cell *org;
+	u16 *con_buf16;
 	unsigned int col, maxcol = vc->vc_cols;
 	unsigned int filled = count;
 
@@ -473,10 +474,10 @@ unlock_out:
 	return ret;
 }
 
-static u16 *vcs_write_buf_noattr(struct vc_data *vc, const char *con_buf,
-		unsigned int pos, unsigned int count, bool viewed, u16 **org0)
+static struct vc_cell *vcs_write_buf_noattr(struct vc_data *vc, const char *con_buf,
+		unsigned int pos, unsigned int count, bool viewed, struct vc_cell **org0)
 {
-	u16 *org;
+	struct vc_cell *org;
 	unsigned int col, maxcol = vc->vc_cols;
 
 	*org0 = org = screen_pos(vc, pos, viewed);
@@ -513,10 +514,10 @@ static inline u16 vc_compile_le16(u8 hi, u8 lo)
 #endif
 }
 
-static u16 *vcs_write_buf(struct vc_data *vc, const char *con_buf,
-		unsigned int pos, unsigned int count, bool viewed, u16 **org0)
+static struct vc_cell *vcs_write_buf(struct vc_data *vc, const char *con_buf,
+		unsigned int pos, unsigned int count, bool viewed, struct vc_cell **org0)
 {
-	u16 *org;
+	struct vc_cell *org;
 	unsigned int col, maxcol = vc->vc_cols;
 	unsigned char c;
 
@@ -590,7 +591,7 @@ vcs_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
 	struct inode *inode = file_inode(file);
 	struct vc_data *vc;
 	char *con_buf;
-	u16 *org0, *org;
+	struct vc_cell *org0, *org;
 	unsigned int written;
 	int size;
 	ssize_t ret;
@@ -686,7 +687,7 @@ vcs_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
 		buf += this_round;
 		pos += this_round;
 		if (org)
-			update_region(vc, (unsigned long)(org0), org - org0);
+			update_region(vc, org0, org - org0);
 	}
 	*ppos += written;
 	ret = written;

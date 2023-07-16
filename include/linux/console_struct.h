@@ -54,6 +54,10 @@ struct vc_state {
 	bool		reverse;
 };
 
+struct vc_cell {
+	u16 celldata;
+};
+
 /*
  * Example: vc_data of a console that was scrolled 3 lines down.
  *
@@ -68,8 +72,8 @@ struct vc_state {
  * (changes by scroll)    || Welcome to linux     |  \
  *                        ||                      |   |
  *           vc_rows --->< | login: root          |   |  visible on console
- *                        || password:            |    > (vc_screenbuf_size is
- * vc_origin -----------> ||                      |   |   vc_size_row * vc_rows)
+ *                        || password:            |    > (vc_screen_size is
+ * vc_origin -----------> ||                      |   |   vc_cols * vc_rows)
  * (start when no scroll) || Last login: 12:28    |  /
  *                        v+----------------------+-:
  *                         | Have a lot of fun... |  \
@@ -77,10 +81,9 @@ struct vc_state {
  *                         | ~ # cat_             |  /
  * vc_scr_end -----------> +----------------------+-:
  * (vc_origin +            |                      |  \ EMPTY, to be filled by
- *  vc_screenbuf_size)     |                      |  / vc_video_erase_char
+ *  vc_screen_size)        |                      |  / vc_video_erase_char
  *                         +----------------------+-'
- *                         <---- 2 * vc_cols ----->
- *                         <---- vc_size_row ----->
+ *                         <-----  vc_cols  ------>
  *
  * Note that every character in the console buffer is accompanied with an
  * attribute in the buffer right after the character. This is not depicted
@@ -94,14 +97,13 @@ struct vc_data {
 	unsigned short	vc_num;			/* Console number */
 	unsigned int	vc_cols;		/* [#] Console size */
 	unsigned int	vc_rows;
-	unsigned int	vc_size_row;		/* Bytes per row */
 	unsigned int	vc_scan_lines;		/* # of scan lines */
 	unsigned int	vc_cell_height;		/* CRTC character cell height */
-	unsigned long	vc_scr_end;		/* [!] End of real screen */
 	unsigned int	vc_top, vc_bottom;	/* Scrolling region */
 	const struct consw *vc_sw;
-	unsigned short	*vc_screenbuf;		/* In-memory character/attribute buffer */
-	unsigned int	vc_screenbuf_size;
+	struct vc_cell	*vc_screenbuf;		/* In-memory character/attribute buffer */
+	struct vc_cell	*vc_scr_end;		/* [!] End of real screen */
+	unsigned int	vc_screen_size;
 	unsigned char	vc_mode;		/* KD_TEXT, ... */
 	/* attributes for all characters on screen */
 	unsigned char	vc_attr;		/* Current attributes */
@@ -113,11 +115,11 @@ struct vc_data {
 	unsigned int	vc_cursor_type;
 	unsigned short	vc_complement_mask;	/* [#] Xor mask for mouse pointer */
 	unsigned short	vc_s_complement_mask;	/* Saved mouse pointer mask */
-	unsigned long	vc_pos;			/* Cursor address */
+	struct vc_cell	*vc_pos;		/* Cursor address */
 	/* fonts */	
 	unsigned short	vc_hi_font_mask;	/* [#] Attribute set for upper 256 chars of font or 0 if not supported */
 	struct console_font vc_font;		/* Current VC font set */
-	unsigned short	vc_video_erase_char;	/* Background erase character */
+	struct vc_cell	vc_video_erase;		/* Background erase */
 	/* VT terminal data */
 	unsigned int	vc_state;		/* Escape sequence parser state */
 	unsigned int	vc_npar,vc_par[NPAR];	/* Parameters of current escape sequence */

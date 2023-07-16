@@ -49,7 +49,7 @@ void dummycon_unregister_output_notifier(struct notifier_block *nb)
 	raw_notifier_chain_unregister(&dummycon_output_nh, nb);
 }
 
-static void dummycon_putc(struct vc_data *vc, int c, int ypos, int xpos)
+static void dummycon_putc(struct vc_data *vc, struct vc_cell c, int ypos, int xpos)
 {
 	WARN_CONSOLE_UNLOCKED();
 
@@ -57,7 +57,7 @@ static void dummycon_putc(struct vc_data *vc, int c, int ypos, int xpos)
 	raw_notifier_call_chain(&dummycon_output_nh, 0, NULL);
 }
 
-static void dummycon_putcs(struct vc_data *vc, const unsigned short *s,
+static void dummycon_putcs(struct vc_data *vc, const struct vc_cell *s,
 			   int count, int ypos, int xpos)
 {
 	int i;
@@ -65,7 +65,7 @@ static void dummycon_putcs(struct vc_data *vc, const unsigned short *s,
 	if (!dummycon_putc_called) {
 		/* Ignore erases */
 		for (i = 0 ; i < count; i++) {
-			if (s[i] != vc->vc_video_erase_char)
+			if (s[i] != vc->vc_video_erase)
 				break;
 		}
 		if (i == count)
@@ -83,8 +83,8 @@ static int dummycon_blank(struct vc_data *vc, int blank, int mode_switch)
 	return 1;
 }
 #else
-static void dummycon_putc(struct vc_data *vc, int c, int ypos, int xpos) { }
-static void dummycon_putcs(struct vc_data *vc, const unsigned short *s,
+static void dummycon_putc(struct vc_data *vc, struct vc_cell c, int ypos, int xpos) { }
+static void dummycon_putcs(struct vc_data *vc, const struct vc_cell *s,
 			   int count, int ypos, int xpos) { }
 static int dummycon_blank(struct vc_data *vc, int blank, int mode_switch)
 {

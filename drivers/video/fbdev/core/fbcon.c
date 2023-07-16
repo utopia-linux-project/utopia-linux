@@ -113,6 +113,28 @@ int fbcon_num_registered_fb;
 static signed char con2fb_map[MAX_NR_CONSOLES];
 static signed char con2fb_map_boot[MAX_NR_CONSOLES];
 
+static inline u16 readcell(const struct vc_cell* p)
+{
+	return p->celldata;
+}
+
+static inline void writecell(u16 a, struct vc_cell *p)
+{
+	p->celldata = a;
+}
+
+static inline void cellset(struct vc_cell *p, struct vc_cell a, size_t count)
+{
+	while (count--) {
+		*p++ = a;
+	}
+}
+
+static inline void cellmove(struct vc_cell *dest, const struct vc_cell *src, size_t count)
+{
+	memcpy(dest, src, count * sizeof(struct vc_cell));
+}
+
 static struct fb_info *fbcon_info_from_console(int console)
 {
 	WARN_CONSOLE_UNLOCKED();
@@ -163,7 +185,7 @@ static int margin_color;
 
 static const struct consw fb_con;
 
-#define advance_row(p, delta) (unsigned short *)((unsigned long)(p) + (delta) * vc->vc_size_row)
+#define advance_row(p, delta) (struct vc_cell *)((struct vc_cell *)(p) + (delta) * vc->vc_cols)
 
 static int fbcon_cursor_noblink;
 
@@ -287,7 +309,7 @@ static int get_color(struct vc_data *vc, struct fb_info *info,
 	if (console_blanked) {
 		unsigned short charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
 
-		c = vc->vc_video_erase_char & charmask;
+		c = vc->vc_video_erase.celldata & charmask;
 	}
 
 	if (depth != 1)
@@ -374,7 +396,7 @@ static void fb_flashcursor(struct work_struct *work)
 		return;
 	}
 
-	c = scr_readw((u16 *) vc->vc_pos);
+	c = readcell(vc->vc_pos);
 	mode = (!ops->cursor_flash || ops->cursor_state.enable) ?
 		CM_ERASE : CM_DRAW;
 	ops->cursor(vc, info, mode, get_color(vc, info, c, 1),
@@ -553,8 +575,9 @@ static void fbcon_prepare_logo(struct vc_data *vc, struct fb_info *info,
 {
 	/* Need to make room for the logo */
 	struct fbcon_ops *ops = info->fbcon_par;
-	int cnt, erase = vc->vc_video_erase_char, step;
-	unsigned short *save = NULL, *r, *q;
+	int cnt, step;
+	struct vc_cell erase = vc->vc_video_erase;
+	struct vc_cell *save = NULL, *r, *q;
 	int logo_height;
 
 	if (info->fbops->owner) {
@@ -567,24 +590,23 @@ static void fbcon_prepare_logo(struct vc_data *vc, struct fb_info *info,
 	 * if black and white framebuffer.
 	 */
 	if (fb_get_color_depth(&info->var, &info->fix) == 1)
-		erase &= ~0x400;
+		erase.celldata &= ~0x400;
 	logo_height = fb_prepare_logo(info, ops->rotate);
 	logo_lines = DIV_ROUND_UP(logo_height, vc->vc_font.height);
-	q = (unsigned short *) ((unsigned long)vc->vc_screenbuf +
-				vc->vc_size_row * rows);
+	q = vc->vc_screenbuf + vc->vc_cols * rows;
 	step = logo_lines * cols;
 	for (r = q - logo_lines * cols; r < q; r++)
-		if (scr_readw(r) != vc->vc_video_erase_char)
+		if (readcell(r) != vc->vc_video_erase.celldata)
 			break;
 	if (r != q && new_rows >= rows + logo_lines) {
-		save = kzalloc(array3_size(logo_lines, new_cols, 2),
+		save = kzalloc(array3_size(logo_lines, new_cols, sizeof(struct vc_cell)),
 			       GFP_KERNEL);
 		if (save) {
 			int i = min(cols, new_cols);
-			scr_memsetw(save, erase, array3_size(logo_lines, new_cols, 2));
+			cellset(save, erase, size_mul(logo_lines, new_cols));
 			r = q - step;
 			for (cnt = 0; cnt < logo_lines; cnt++, r += i)
-				scr_memcpyw(save + cnt * new_cols, r, 2 * i);
+				cellmove(save + cnt * new_cols, r, i);
 			r = q;
 		}
 	}
@@ -592,7 +614,7 @@ static void fbcon_prepare_logo(struct vc_data *vc, struct fb_info *info,
 		/* We can scroll screen down */
 		r = q - step - cols;
 		for (cnt = rows - logo_lines; cnt > 0; cnt--) {
-			scr_memcpyw(r + step, r, vc->vc_size_row);
+			cellmove(r + step, r, vc->vc_cols);
 			r -= cols;
 		}
 		if (!save) {
@@ -602,12 +624,10 @@ static void fbcon_prepare_logo(struct vc_data *vc, struct fb_info *info,
 			else
 				lines = logo_lines;
 			vc->state.y += lines;
-			vc->vc_pos += lines * vc->vc_size_row;
+			vc->vc_pos += lines * vc->vc_cols;
 		}
 	}
-	scr_memsetw(vc->vc_screenbuf,
-		    erase,
-		    vc->vc_size_row * logo_lines);
+	cellset(vc->vc_screenbuf, erase, vc->vc_cols * logo_lines);
 
 	if (con_is_visible(vc) && vc->vc_mode == KD_TEXT) {
 		fbcon_clear_margins(vc, 0);
@@ -615,12 +635,10 @@ static void fbcon_prepare_logo(struct vc_data *vc, struct fb_info *info,
 	}
 
 	if (save) {
-		q = (unsigned short *) ((unsigned long)vc->vc_screenbuf +
-					vc->vc_size_row *
-					rows);
-		scr_memcpyw(q, save, array3_size(logo_lines, new_cols, 2));
+		q = vc->vc_screenbuf + vc->vc_cols * rows;
+		cellmove(q, save, size_mul(logo_lines, new_cols));
 		vc->state.y += logo_lines;
-		vc->vc_pos += logo_lines * vc->vc_size_row;
+		vc->vc_pos += logo_lines * vc->vc_cols;
 		kfree(save);
 	}
 
@@ -1266,7 +1284,7 @@ static void fbcon_clear(struct vc_data *vc, int sy, int sx, int height,
 		ops->clear(vc, info, real_y(p, sy), sx, height, width);
 }
 
-static void fbcon_putcs(struct vc_data *vc, const unsigned short *s,
+static void fbcon_putcs(struct vc_data *vc, const struct vc_cell *s,
 			int count, int ypos, int xpos)
 {
 	struct fb_info *info = fbcon_info_from_console(vc->vc_num);
@@ -1275,16 +1293,13 @@ static void fbcon_putcs(struct vc_data *vc, const unsigned short *s,
 
 	if (!fbcon_is_inactive(vc, info))
 		ops->putcs(vc, info, s, count, real_y(p, ypos), xpos,
-			   get_color(vc, info, scr_readw(s), 1),
-			   get_color(vc, info, scr_readw(s), 0));
+			   get_color(vc, info, readcell(s), 1),
+			   get_color(vc, info, readcell(s), 0));
 }
 
-static void fbcon_putc(struct vc_data *vc, int c, int ypos, int xpos)
+static void fbcon_putc(struct vc_data *vc, struct vc_cell c, int ypos, int xpos)
 {
-	unsigned short chr;
-
-	scr_writew(c, &chr);
-	fbcon_putcs(vc, &chr, 1, ypos, xpos);
+	fbcon_putcs(vc, &c, 1, ypos, xpos);
 }
 
 static void fbcon_clear_margins(struct vc_data *vc, int bottom_only)
@@ -1300,7 +1315,7 @@ static void fbcon_cursor(struct vc_data *vc, int mode)
 {
 	struct fb_info *info = fbcon_info_from_console(vc->vc_num);
 	struct fbcon_ops *ops = info->fbcon_par;
- 	int c = scr_readw((u16 *) vc->vc_pos);
+	int c = readcell(vc->vc_pos);
 
 	ops->cur_blink_jiffies = msecs_to_jiffies(vc->vc_cur_blink_ms);
 
@@ -1522,18 +1537,17 @@ static __inline__ void ypan_down_redraw(struct vc_data *vc, int t, int count)
 static void fbcon_redraw_move(struct vc_data *vc, struct fbcon_display *p,
 			      int line, int count, int dy)
 {
-	unsigned short *s = (unsigned short *)
-		((unsigned long)vc->vc_screenbuf + vc->vc_size_row * line);
+	struct vc_cell *s = vc->vc_screenbuf + vc->vc_cols * line;
 
 	while (count--) {
-		unsigned short *start = s;
-		unsigned short *le = advance_row(s, 1);
+		struct vc_cell *start = s;
+		struct vc_cell *le = advance_row(s, 1);
 		unsigned short c;
 		int x = 0;
 		unsigned short attr = 1;
 
 		do {
-			c = scr_readw(s);
+			c = readcell(s);
 			if (attr != (c & 0xff00)) {
 				attr = c & 0xff00;
 				if (s > start) {
@@ -1557,21 +1571,20 @@ static void fbcon_redraw_blit(struct vc_data *vc, struct fb_info *info,
 			struct fbcon_display *p, int line, int count, int ycount)
 {
 	int offset = ycount * vc->vc_cols;
-	unsigned short *d = (unsigned short *)
-	    ((unsigned long)vc->vc_screenbuf + vc->vc_size_row * line);
-	unsigned short *s = d + offset;
+	struct vc_cell *d = vc->vc_screenbuf + vc->vc_cols * line;
+	struct vc_cell *s = d + offset;
 	struct fbcon_ops *ops = info->fbcon_par;
 
 	while (count--) {
-		unsigned short *start = s;
-		unsigned short *le = advance_row(s, 1);
+		struct vc_cell *start = s;
+		struct vc_cell *le = advance_row(s, 1);
 		unsigned short c;
 		int x = 0;
 
 		do {
-			c = scr_readw(s);
+			c = readcell(s);
 
-			if (c == scr_readw(d)) {
+			if (c == readcell(d)) {
 				if (s > start) {
 					ops->bmove(vc, info, line + ycount, x,
 						   line, x, 1, s-start);
@@ -1583,7 +1596,7 @@ static void fbcon_redraw_blit(struct vc_data *vc, struct fb_info *info,
 				}
 			}
 
-			scr_writew(c, d);
+			writecell(c, d);
 			console_conditional_schedule();
 			s++;
 			d++;
@@ -1597,8 +1610,8 @@ static void fbcon_redraw_blit(struct vc_data *vc, struct fb_info *info,
 		else {
 			line--;
 			/* NOTE: We subtract two lines from these pointers */
-			s -= vc->vc_size_row;
-			d -= vc->vc_size_row;
+			s -= 2 * vc->vc_cols;
+			d -= 2 * vc->vc_cols;
 		}
 	}
 }
@@ -1606,19 +1619,18 @@ static void fbcon_redraw_blit(struct vc_data *vc, struct fb_info *info,
 static void fbcon_redraw(struct vc_data *vc, struct fbcon_display *p,
 			 int line, int count, int offset)
 {
-	unsigned short *d = (unsigned short *)
-	    ((unsigned long)vc->vc_screenbuf + vc->vc_size_row * line);
-	unsigned short *s = d + offset;
+	struct vc_cell *d = vc->vc_screenbuf + vc->vc_cols * line;
+	struct vc_cell *s = d + offset;
 
 	while (count--) {
-		unsigned short *start = s;
-		unsigned short *le = advance_row(s, 1);
+		struct vc_cell *start = s;
+		struct vc_cell *le = advance_row(s, 1);
 		unsigned short c;
 		int x = 0;
 		unsigned short attr = 1;
 
 		do {
-			c = scr_readw(s);
+			c = readcell(s);
 			if (attr != (c & 0xff00)) {
 				attr = c & 0xff00;
 				if (s > start) {
@@ -1628,7 +1640,7 @@ static void fbcon_redraw(struct vc_data *vc, struct fbcon_display *p,
 					start = s;
 				}
 			}
-			if (c == scr_readw(d)) {
+			if (c == readcell(d)) {
 				if (s > start) {
 					fbcon_putcs(vc, start, s - start,
 						     line, x);
@@ -1639,7 +1651,7 @@ static void fbcon_redraw(struct vc_data *vc, struct fbcon_display *p,
 					start++;
 				}
 			}
-			scr_writew(c, d);
+			writecell(c, d);
 			console_conditional_schedule();
 			s++;
 			d++;
@@ -1652,8 +1664,8 @@ static void fbcon_redraw(struct vc_data *vc, struct fbcon_display *p,
 		else {
 			line--;
 			/* NOTE: We subtract two lines from these pointers */
-			s -= vc->vc_size_row;
-			d -= vc->vc_size_row;
+			s -= 2 * vc->vc_cols;
+			d -= 2 * vc->vc_cols;
 		}
 	}
 }
@@ -1750,11 +1762,9 @@ static bool fbcon_scroll(struct vc_data *vc, unsigned int t, unsigned int b,
 			fbcon_redraw_blit(vc, info, p, t, b - t - count,
 				     count);
 			fbcon_clear(vc, b - count, 0, count, vc->vc_cols);
-			scr_memsetw((unsigned short *) ((unsigned long) vc->vc_screenbuf +
-							vc->vc_size_row *
-							(b - count)),
-				    vc->vc_video_erase_char,
-				    vc->vc_size_row * count);
+			cellset(vc->vc_screenbuf + vc->vc_cols * (b - count),
+				    vc->vc_video_erase,
+				    vc->vc_cols * count);
 			return true;
 
 		case SCROLL_WRAP_MOVE:
@@ -1821,11 +1831,9 @@ static bool fbcon_scroll(struct vc_data *vc, unsigned int t, unsigned int b,
 			fbcon_redraw(vc, p, t, b - t - count,
 				     count * vc->vc_cols);
 			fbcon_clear(vc, b - count, 0, count, vc->vc_cols);
-			scr_memsetw((unsigned short *) ((unsigned long) vc->vc_screenbuf +
-							vc->vc_size_row *
-							(b - count)),
-				    vc->vc_video_erase_char,
-				    vc->vc_size_row * count);
+			cellset(vc->vc_screenbuf + vc->vc_cols * (b - count),
+				    vc->vc_video_erase,
+				    vc->vc_cols * count);
 			return true;
 		}
 		break;
@@ -1838,11 +1846,9 @@ static bool fbcon_scroll(struct vc_data *vc, unsigned int t, unsigned int b,
 			fbcon_redraw_blit(vc, info, p, b - 1, b - t - count,
 				     -count);
 			fbcon_clear(vc, t, 0, count, vc->vc_cols);
-			scr_memsetw((unsigned short *) ((unsigned long) vc->vc_screenbuf +
-							vc->vc_size_row *
-							t),
-				    vc->vc_video_erase_char,
-				    vc->vc_size_row * count);
+			cellset(vc->vc_screenbuf + vc->vc_cols * t,
+				    vc->vc_video_erase,
+				    vc->vc_cols * count);
 			return true;
 
 		case SCROLL_WRAP_MOVE:
@@ -1907,11 +1913,9 @@ static bool fbcon_scroll(struct vc_data *vc, unsigned int t, unsigned int b,
 			fbcon_redraw(vc, p, b - 1, b - t - count,
 				     -count * vc->vc_cols);
 			fbcon_clear(vc, t, 0, count, vc->vc_cols);
-			scr_memsetw((unsigned short *) ((unsigned long) vc->vc_screenbuf +
-							vc->vc_size_row *
-							t),
-				    vc->vc_video_erase_char,
-				    vc->vc_size_row * count);
+			cellset(vc->vc_screenbuf + vc->vc_cols * t,
+				    vc->vc_video_erase,
+				    vc->vc_cols * count);
 			return true;
 		}
 	}
@@ -2167,9 +2171,8 @@ static int fbcon_switch(struct vc_data *vc)
 		logo_shown = fg_console;
 		fb_show_logo(info, ops->rotate);
 		update_region(vc,
-			      (unsigned long)vc->vc_screenbuf + vc->vc_size_row * vc->vc_top,
-			      vc->vc_size_row * (vc->vc_bottom -
-						 vc->vc_top) / 2);
+			      vc->vc_screenbuf + vc->vc_cols * vc->vc_top,
+			      vc->vc_cols * (vc->vc_bottom - vc->vc_top));
 		return 0;
 	}
 	return 1;
@@ -2181,12 +2184,12 @@ static void fbcon_generic_blank(struct vc_data *vc, struct fb_info *info,
 	if (blank) {
 		unsigned short charmask = vc->vc_hi_font_mask ?
 			0x1ff : 0xff;
-		unsigned short oldc;
+		struct vc_cell oldc;
 
-		oldc = vc->vc_video_erase_char;
-		vc->vc_video_erase_char &= charmask;
+		oldc = vc->vc_video_erase;
+		vc->vc_video_erase.celldata &= charmask;
 		fbcon_clear(vc, 0, 0, vc->vc_rows, vc->vc_cols);
-		vc->vc_video_erase_char = oldc;
+		vc->vc_video_erase = oldc;
 	}
 }
 
@@ -2333,17 +2336,16 @@ static void set_vc_hi_font(struct vc_data *vc, bool set)
 
 		/* ++Edmund: reorder the attribute bits */
 		if (vc->vc_can_do_color) {
-			unsigned short *cp =
-			    vc->vc_screenbuf;
-			int count = vc->vc_screenbuf_size / 2;
+			struct vc_cell *cp = vc->vc_screenbuf;
+			int count = vc->vc_screen_size;
 			unsigned short c;
 			for (; count > 0; count--, cp++) {
-				c = scr_readw(cp);
-				scr_writew(((c & 0xfe00) >> 1) |
+				c = readcell(cp);
+				writecell(((c & 0xfe00) >> 1) |
 					   (c & 0xff), cp);
 			}
-			c = vc->vc_video_erase_char;
-			vc->vc_video_erase_char =
+			c = vc->vc_video_erase.celldata;
+			vc->vc_video_erase.celldata =
 			    ((c & 0xfe00) >> 1) | (c & 0xff);
 			vc->vc_attr >>= 1;
 		}
@@ -2356,28 +2358,27 @@ static void set_vc_hi_font(struct vc_data *vc, bool set)
 
 		/* ++Edmund: reorder the attribute bits */
 		{
-			unsigned short *cp =
-			    vc->vc_screenbuf;
-			int count = vc->vc_screenbuf_size / 2;
+			struct vc_cell *cp = vc->vc_screenbuf;
+			int count = vc->vc_screen_size;
 			unsigned short c;
 			for (; count > 0; count--, cp++) {
 				unsigned short newc;
-				c = scr_readw(cp);
+				c = readcell(cp);
 				if (vc->vc_can_do_color)
 					newc =
 					    ((c & 0xff00) << 1) | (c &
 								   0xff);
 				else
 					newc = c & ~0x100;
-				scr_writew(newc, cp);
+				writecell(newc, cp);
 			}
-			c = vc->vc_video_erase_char;
+			c = vc->vc_video_erase.celldata;
 			if (vc->vc_can_do_color) {
-				vc->vc_video_erase_char =
+				vc->vc_video_erase.celldata =
 				    ((c & 0xff00) << 1) | (c & 0xff);
 				vc->vc_attr <<= 1;
 			} else
-				vc->vc_video_erase_char = c & ~0x100;
+				vc->vc_video_erase.celldata = c & ~0x100;
 		}
 	}
 }
@@ -2589,10 +2590,10 @@ static void fbcon_set_palette(struct vc_data *vc, const unsigned char *table)
    that's why we have to use a separate routine. */
 static void fbcon_invert_region(struct vc_data *vc, int offset, int cnt)
 {
-	u16 *p = (u16*)((unsigned long)vc->vc_screenbuf + (offset << 1));
+	struct vc_cell *p = vc->vc_screenbuf + offset;
 
 	while (cnt--) {
-		u16 a = scr_readw(p);
+		u16 a = readcell(p);
 		if (!vc->vc_can_do_color)
 			a ^= 0x0800;
 		else if (vc->vc_hi_font_mask == 0x100)
@@ -2601,7 +2602,7 @@ static void fbcon_invert_region(struct vc_data *vc, int offset, int cnt)
 		else
 			a = ((a) & 0x88ff) | (((a) & 0x7000) >> 4) |
 			    (((a) & 0x0700) << 4);
-		scr_writew(a, p++);
+		writecell(a, p++);
 	}
 }
 

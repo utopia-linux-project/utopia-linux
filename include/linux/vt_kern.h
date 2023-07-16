@@ -15,6 +15,8 @@
 #include <linux/mm.h>
 #include <linux/notifier.h>
 
+struct vc_cell;
+
 void kd_mksound(unsigned int hz, unsigned int ticks);
 int kbd_rate(struct kbd_repeat *rep);
 
@@ -36,7 +38,7 @@ int con_get_cmap(unsigned char __user *cmap);
 void scrollback_normal(struct vc_data *vc);
 void unscrollback(struct vc_data *vc, int lines);
 void clear_buffer_attributes(struct vc_data *vc);
-void update_region(struct vc_data *vc, unsigned long start, int count);
+void update_region(struct vc_data *vc, struct vc_cell *start, int count);
 void redraw_screen(struct vc_data *vc, int is_switch);
 #define update_screen(x) redraw_screen(x, 0)
 #define switch_screen(x) redraw_screen(x, 1)

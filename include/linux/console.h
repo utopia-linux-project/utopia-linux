@@ -33,6 +33,8 @@ enum con_scroll {
 
 enum vc_intensity;
 
+struct vc_cell;
+
 /**
  * struct consw - callbacks for consoles
  *
@@ -48,8 +50,8 @@ struct consw {
 	void	(*con_deinit)(struct vc_data *vc);
 	void	(*con_clear)(struct vc_data *vc, int sy, int sx, int height,
 			int width);
-	void	(*con_putc)(struct vc_data *vc, int c, int ypos, int xpos);
-	void	(*con_putcs)(struct vc_data *vc, const unsigned short *s,
+	void	(*con_putc)(struct vc_data *vc, struct vc_cell c, int ypos, int xpos);
+	void	(*con_putcs)(struct vc_data *vc, const struct vc_cell *s,
 			int count, int ypos, int xpos);
 	void	(*con_cursor)(struct vc_data *vc, int mode);
 	bool	(*con_scroll)(struct vc_data *vc, unsigned int top,

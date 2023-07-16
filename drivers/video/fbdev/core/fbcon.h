@@ -57,7 +57,7 @@ struct fbcon_ops {
 	void (*clear)(struct vc_data *vc, struct fb_info *info, int sy,
 		      int sx, int height, int width);
 	void (*putcs)(struct vc_data *vc, struct fb_info *info,
-		      const unsigned short *s, int count, int yy, int xx,
+		      const struct vc_cell *s, int count, int yy, int xx,
 		      int fg, int bg);
 	void (*clear_margins)(struct vc_data *vc, struct fb_info *info,
 			      int color, int bottom_only);
@@ -128,8 +128,8 @@ static inline int attr_col_ec(int shift, struct vc_data *vc,
 		return 0;
 
 	if (vc->vc_can_do_color)
-		return is_fg ? attr_fgcol(shift,vc->vc_video_erase_char)
-			: attr_bgcol(shift,vc->vc_video_erase_char);
+		return is_fg ? attr_fgcol(shift,vc->vc_video_erase.celldata)
+			: attr_bgcol(shift,vc->vc_video_erase.celldata);
 
 	if (!info)
 		return 0;
@@ -137,7 +137,7 @@ static inline int attr_col_ec(int shift, struct vc_data *vc,
 	col = mono_col(info);
 	is_mono01 = info->fix.visual == FB_VISUAL_MONO01;
 
-	if (attr_reverse(vc->vc_video_erase_char)) {
+	if (attr_reverse(vc->vc_video_erase.celldata)) {
 		fg = is_mono01 ? col : 0;
 		bg = is_mono01 ? 0 : col;
 	}
