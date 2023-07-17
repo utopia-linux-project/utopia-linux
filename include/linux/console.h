@@ -40,8 +40,6 @@ enum vc_intensity;
  *		Return true if no generic handling should be done.
  *		Invoked by csi_M and printing to the console.
  * @con_set_palette: sets the palette of the console to @table (optional)
- * @con_scrolldelta: the contents of the console should be scrolled by @lines.
- *		     Invoked by user. (optional)
  */
 struct consw {
 	struct module *owner;
@@ -69,8 +67,8 @@ struct consw {
 			unsigned int height, unsigned int user);
 	void	(*con_set_palette)(struct vc_data *vc,
 			const unsigned char *table);
-	void	(*con_scrolldelta)(struct vc_data *vc, int lines);
-	int	(*con_set_origin)(struct vc_data *vc);
+	void	(*con_scrollback)(struct vc_data *vc, int lines);
+	int	(*con_reset_origin)(struct vc_data *vc);
 	void	(*con_save_screen)(struct vc_data *vc);
 	u8	(*con_build_attr)(struct vc_data *vc, u8 color,
 			enum vc_intensity intensity,

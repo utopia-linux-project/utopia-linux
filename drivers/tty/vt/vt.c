@@ -295,10 +295,10 @@ static inline unsigned short *screenpos(const struct vc_data *vc, int offset,
 }
 
 /* Called  from the keyboard irq path.. */
-static inline void scrolldelta(int lines)
+static inline void scrollback(int lines)
 {
 	/* FIXME */
-	/* scrolldelta needs some kind of consistency lock, but the BKL was
+	/* scrollback needs some kind of consistency lock, but the BKL was
 	   and still is not protecting versus the scheduled back end */
 	scrollback_delta += lines;
 	schedule_console_callback();
@@ -439,7 +439,7 @@ static void update_attr(struct vc_data *vc)
 }
 
 /* Note: inverting the screen twice should revert to the original state */
-void invert_screen(struct vc_data *vc, int offset, int count, bool viewed)
+void invert_region(struct vc_data *vc, int offset, int count, bool viewed)
 {
 	unsigned short *p;
 
@@ -569,13 +569,13 @@ static void set_cursor(struct vc_data *vc)
 		hide_cursor(vc);
 }
 
-static void set_origin(struct vc_data *vc)
+static void reset_origin(struct vc_data *vc)
 {
 	WARN_CONSOLE_UNLOCKED();
 
 	if (!con_is_visible(vc) ||
-	    !vc->vc_sw->con_set_origin ||
-	    !vc->vc_sw->con_set_origin(vc))
+	    !vc->vc_sw->con_reset_origin ||
+	    !vc->vc_sw->con_reset_origin(vc))
 		vc->vc_origin = (unsigned long)vc->vc_screenbuf;
 	vc->vc_visible_origin = vc->vc_origin;
 	vc->vc_scr_end = vc->vc_origin + vc->vc_screenbuf_size;
@@ -595,7 +595,7 @@ static void flush_scrollback(struct vc_data *vc)
 {
 	WARN_CONSOLE_UNLOCKED();
 
-	set_origin(vc);
+	reset_origin(vc);
 	if (vc->vc_sw->con_flush_scrollback) {
 		vc->vc_sw->con_flush_scrollback(vc);
 	} else if (con_is_visible(vc)) {
@@ -651,7 +651,7 @@ void redraw_screen(struct vc_data *vc, int is_switch)
 		hide_cursor(old_vc);
 		if (!con_is_visible(old_vc)) {
 			save_screen(old_vc);
-			set_origin(old_vc);
+			reset_origin(old_vc);
 		}
 		if (tty0dev)
 			sysfs_notify(&tty0dev->kobj, NULL, "active");
@@ -664,7 +664,7 @@ void redraw_screen(struct vc_data *vc, int is_switch)
 		int update;
 		int old_was_color = vc->vc_can_do_color;
 
-		set_origin(vc);
+		reset_origin(vc);
 		update = vc->vc_sw->con_switch(vc);
 		set_palette(vc);
 		/*
@@ -943,7 +943,7 @@ static int vc_do_resize(struct tty_struct *tty, struct vc_data *vc,
 	oldscreen = vc->vc_screenbuf;
 	vc->vc_screenbuf = newscreen;
 	vc->vc_screenbuf_size = new_screen_size;
-	set_origin(vc);
+	reset_origin(vc);
 	kfree(oldscreen);
 
 	/* do part of a reset_terminal() */
@@ -1145,16 +1145,16 @@ static void gotoxay(struct vc_data *vc, int new_x, int new_y)
 	gotoxy(vc, new_x, vc->vc_decom ? (vc->vc_top + new_y) : new_y);
 }
 
-void scrollback(struct vc_data *vc)
+void scrollback_normal(struct vc_data *vc)
 {
-	scrolldelta(-(vc->vc_rows / 2));
+	scrollback(-(vc->vc_rows / 2));
 }
 
-void scrollfront(struct vc_data *vc, int lines)
+void unscrollback(struct vc_data *vc, int lines)
 {
 	if (!lines)
 		lines = vc->vc_rows / 2;
-	scrolldelta(lines);
+	scrollback(lines);
 }
 
 static void lf(struct vc_data *vc)
@@ -1531,7 +1531,7 @@ static void set_mode(struct vc_data *vc, int on_off)
 			case 5:			/* Inverted screen on/off */
 				if (vc->vc_decscnm != on_off) {
 					vc->vc_decscnm = on_off;
-					invert_screen(vc, 0,
+					invert_region(vc, 0,
 							vc->vc_screenbuf_size,
 							false);
 					update_attr(vc);
@@ -2597,8 +2597,8 @@ static void console_callback(struct work_struct *ignored)
 	if (scrollback_delta) {
 		struct vc_data *vc = vc_cons[fg_console].d;
 		clear_selection();
-		if (vc->vc_mode == KD_TEXT && vc->vc_sw->con_scrolldelta)
-			vc->vc_sw->con_scrolldelta(vc, scrollback_delta);
+		if (vc->vc_mode == KD_TEXT && vc->vc_sw->con_scrollback)
+			vc->vc_sw->con_scrollback(vc, scrollback_delta);
 		scrollback_delta = 0;
 	}
 	if (blank_timer_expired) {
@@ -2868,7 +2868,7 @@ int tioclinux(struct tty_struct *tty, unsigned long arg)
 				   of other calls need fixing before the lock
 				   is actually useful ! */
 				console_lock();
-				scrollfront(vc_cons[fg_console].d, lines);
+				unscrollback(vc_cons[fg_console].d, lines);
 				console_unlock();
 				ret = 0;
 			}
@@ -3062,7 +3062,7 @@ static void vc_init(struct vc_data *vc, unsigned int rows,
 	vc->vc_size_row = cols << 1;
 	vc->vc_screenbuf_size = vc->vc_rows * vc->vc_size_row;
 
-	set_origin(vc);
+	reset_origin(vc);
 	vc->vc_pos = vc->vc_origin;
 	reset_vc(vc);
 	for (j=k=0; j<16; j++) {
@@ -3134,7 +3134,7 @@ static int __init con_init(void)
 	}
 	currcons = fg_console = 0;
 	master_display_fg = vc = vc_cons[currcons].d;
-	set_origin(vc);
+	reset_origin(vc);
 	save_screen(vc);
 	gotoxy(vc, vc->state.x, vc->state.y);
 	csi_J(vc, 0);
@@ -3296,7 +3296,7 @@ static int do_bind_con_driver(const struct consw *csw, int first, int last,
 		vc->vc_sw->con_deinit(vc);
 		vc->vc_origin = (unsigned long)vc->vc_screenbuf;
 		visual_init(vc, i, 0);
-		set_origin(vc);
+		reset_origin(vc);
 		update_attr(vc);
 
 		/* If the console changed between mono <-> color, then
@@ -3969,7 +3969,7 @@ void do_blank_screen(int entering_gfx)
 		vc->vc_sw->con_blank(vc, -1, 1);
 		console_blanked = fg_console + 1;
 		blank_state = blank_off;
-		set_origin(vc);
+		reset_origin(vc);
 		return;
 	}
 
@@ -3990,7 +3990,7 @@ void do_blank_screen(int entering_gfx)
 	i = vc->vc_sw->con_blank(vc, vesa_off_interval ? 1 : (vesa_blank_mode + 1), 0);
 	console_blanked = fg_console + 1;
 	if (i)
-		set_origin(vc);
+		reset_origin(vc);
 
 	if (console_blank_hook && console_blank_hook(1))
 		return;
@@ -4376,12 +4376,12 @@ void putconsxy(struct vc_data *vc, unsigned char xy[static const 2])
 	set_cursor(vc);
 }
 
-u16 vcs_scr_readw(const struct vc_data *vc, const u16 *org)
+u16 vcs_readcell(const struct vc_data *vc, const u16 *org)
 {
 	return scr_readw(org);
 }
 
-void vcs_scr_writew(struct vc_data *vc, u16 val, u16 *org)
+void vcs_writecell(struct vc_data *vc, u16 val, u16 *org)
 {
 	scr_writew(val, org);
 }
@@ -4391,7 +4391,7 @@ void vcs_scr_updated(struct vc_data *vc)
 	notify_update(vc);
 }
 
-void vc_scrolldelta_helper(struct vc_data *c, int lines,
+void vc_scrollback_helper(struct vc_data *c, int lines,
 		unsigned int rolled_over, void *base, unsigned int size)
 {
 	unsigned long ubase = (unsigned long)base;
@@ -4429,7 +4429,7 @@ void vc_scrolldelta_helper(struct vc_data *c, int lines,
 
 	c->vc_visible_origin = ubase + (from + from_off) % wrap;
 }
-EXPORT_SYMBOL_GPL(vc_scrolldelta_helper);
+EXPORT_SYMBOL_GPL(vc_scrollback_helper);
 
 /*
  *	Visible symbols for modules

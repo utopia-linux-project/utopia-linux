@@ -71,8 +71,8 @@ static void vgacon_deinit(struct vc_data *c);
 static void vgacon_cursor(struct vc_data *c, int mode);
 static int vgacon_switch(struct vc_data *c);
 static int vgacon_blank(struct vc_data *c, int blank, int mode_switch);
-static void vgacon_scrolldelta(struct vc_data *c, int lines);
-static int vgacon_set_origin(struct vc_data *c);
+static void vgacon_scrollback(struct vc_data *c, int lines);
+static int vgacon_reset_origin(struct vc_data *c);
 static void vgacon_save_screen(struct vc_data *c);
 static void vgacon_invert_region(struct vc_data *c, u16 * p, int count);
 
@@ -143,12 +143,12 @@ static inline void vga_set_mem_top(struct vc_data *c)
 static void vgacon_restore_screen(struct vc_data *c)
 {
 	if (c->vc_origin != c->vc_visible_origin)
-		vgacon_scrolldelta(c, 0);
+		vgacon_scrollback(c, 0);
 }
 
-static void vgacon_scrolldelta(struct vc_data *c, int lines)
+static void vgacon_scrollback(struct vc_data *c, int lines)
 {
-	vc_scrolldelta_helper(c, lines, vga_rolled_over, (void *)vga_vram_base,
+	vc_scrollback_helper(c, lines, vga_rolled_over, (void *)vga_vram_base,
 			vga_vram_size);
 	vga_set_mem_top(c);
 }
@@ -787,7 +787,7 @@ static int vgacon_blank(struct vc_data *c, int blank, int mode_switch)
 			vga_palette_blanked = true;
 			return 0;
 		}
-		vgacon_set_origin(c);
+		vgacon_reset_origin(c);
 		scr_memsetw((void *) vga_vram_base, BLANK,
 			    c->vc_screenbuf_size);
 		if (mode_switch)
@@ -1067,7 +1067,7 @@ static int vgacon_resize(struct vc_data *c, unsigned int width,
 	return 0;
 }
 
-static int vgacon_set_origin(struct vc_data *c)
+static int vgacon_reset_origin(struct vc_data *c)
 {
 	if (vga_is_gfx ||	/* We don't play origin tricks in graphic modes */
 	    (console_blanked && !vga_palette_blanked))	/* Nor we write to blanked screens */
@@ -1174,8 +1174,8 @@ const struct consw vga_con = {
 	.con_font_get = vgacon_font_get,
 	.con_resize = vgacon_resize,
 	.con_set_palette = vgacon_set_palette,
-	.con_scrolldelta = vgacon_scrolldelta,
-	.con_set_origin = vgacon_set_origin,
+	.con_scrollback= vgacon_scrollback,
+	.con_reset_origin = vgacon_reset_origin,
 	.con_save_screen = vgacon_save_screen,
 	.con_build_attr = vgacon_build_attr,
 	.con_invert_region = vgacon_invert_region,

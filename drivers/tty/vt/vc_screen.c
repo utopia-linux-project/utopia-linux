@@ -280,7 +280,7 @@ static void vcs_read_buf_noattr(const struct vc_data *vc, char *con_buf,
 	pos += maxcol - col;
 
 	while (count-- > 0) {
-		*con_buf++ = (vcs_scr_readw(vc, org++) & 0xff);
+		*con_buf++ = (vcs_readcell(vc, org++) & 0xff);
 		if (++col == maxcol) {
 			org = screen_pos(vc, pos, viewed);
 			col = 0;
@@ -345,7 +345,7 @@ static unsigned int vcs_read_buf(const struct vc_data *vc, char *con_buf,
 	con_buf16 = (u16 *)con_buf;
 
 	while (count) {
-		*con_buf16++ = vcs_scr_readw(vc, org++);
+		*con_buf16++ = vcs_readcell(vc, org++);
 		count--;
 		if (++col == maxcol) {
 			org = screen_pos(vc, pos, viewed);
@@ -487,8 +487,8 @@ static u16 *vcs_write_buf_noattr(struct vc_data *vc, const char *con_buf,
 		unsigned char c = *con_buf++;
 
 		count--;
-		vcs_scr_writew(vc,
-			       (vcs_scr_readw(vc, org) & 0xff00) | c, org);
+		vcs_writecell(vc,
+			       (vcs_readcell(vc, org) & 0xff00) | c, org);
 		org++;
 		if (++col == maxcol) {
 			org = screen_pos(vc, pos, viewed);
@@ -545,7 +545,7 @@ static u16 *vcs_write_buf(struct vc_data *vc, const char *con_buf,
 	if (pos & 1) {
 		count--;
 		c = *con_buf++;
-		vcs_scr_writew(vc, vc_compile_le16(c, vcs_scr_readw(vc, org)),
+		vcs_writecell(vc, vc_compile_le16(c, vcs_readcell(vc, org)),
 				org);
 		org++;
 		pos++;
@@ -563,7 +563,7 @@ static u16 *vcs_write_buf(struct vc_data *vc, const char *con_buf,
 		unsigned short w;
 
 		w = get_unaligned(((unsigned short *)con_buf));
-		vcs_scr_writew(vc, w, org++);
+		vcs_writecell(vc, w, org++);
 		con_buf += 2;
 		count -= 2;
 		if (++col == maxcol) {
@@ -578,7 +578,7 @@ static u16 *vcs_write_buf(struct vc_data *vc, const char *con_buf,
 
 	/* odd pos -- the remaining character */
 	c = *con_buf++;
-	vcs_scr_writew(vc, vc_compile_le16(vcs_scr_readw(vc, org) >> 8, c),
+	vcs_writecell(vc, vc_compile_le16(vcs_readcell(vc, org) >> 8, c),
 				org);
 
 	return org;

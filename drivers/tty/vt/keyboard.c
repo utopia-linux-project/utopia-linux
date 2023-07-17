@@ -601,12 +601,12 @@ static void fn_send_intr(struct vc_data *vc)
 
 static void fn_scroll_forw(struct vc_data *vc)
 {
-	scrollfront(vc, 0);
+	unscrollback(vc, 0);
 }
 
 static void fn_scroll_back(struct vc_data *vc)
 {
-	scrollback(vc);
+	scrollback_normal(vc);
 }
 
 static void fn_show_mem(struct vc_data *vc)

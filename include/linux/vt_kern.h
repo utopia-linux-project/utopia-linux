@@ -33,8 +33,8 @@ void poke_blanked_console(void);
 int con_font_op(struct vc_data *vc, struct console_font_op *op);
 int con_set_cmap(unsigned char __user *cmap);
 int con_get_cmap(unsigned char __user *cmap);
-void scrollback(struct vc_data *vc);
-void scrollfront(struct vc_data *vc, int lines);
+void scrollback_normal(struct vc_data *vc);
+void unscrollback(struct vc_data *vc, int lines);
 void clear_buffer_attributes(struct vc_data *vc);
 void update_region(struct vc_data *vc, unsigned long start, int count);
 void redraw_screen(struct vc_data *vc, int is_switch);
@@ -100,7 +100,7 @@ void vt_set_led_state(unsigned int console, int leds);
 void vt_kbd_con_start(unsigned int console);
 void vt_kbd_con_stop(unsigned int console);
 
-void vc_scrolldelta_helper(struct vc_data *c, int lines,
+void vc_scrollback_helper(struct vc_data *c, int lines,
 		unsigned int rolled_over, void *_base, unsigned int size);
 
 #endif /* _VT_KERN_H */
