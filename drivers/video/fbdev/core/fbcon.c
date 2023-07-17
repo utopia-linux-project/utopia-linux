@@ -570,7 +570,7 @@ static void fbcon_prepare_logo(struct vc_data *vc, struct fb_info *info,
 		erase &= ~0x400;
 	logo_height = fb_prepare_logo(info, ops->rotate);
 	logo_lines = DIV_ROUND_UP(logo_height, vc->vc_font.height);
-	q = (unsigned short *) (vc->vc_origin +
+	q = (unsigned short *) ((unsigned long)vc->vc_screenbuf +
 				vc->vc_size_row * rows);
 	step = logo_lines * cols;
 	for (r = q - logo_lines * cols; r < q; r++)
@@ -605,7 +605,7 @@ static void fbcon_prepare_logo(struct vc_data *vc, struct fb_info *info,
 			vc->vc_pos += lines * vc->vc_size_row;
 		}
 	}
-	scr_memsetw((unsigned short *) vc->vc_origin,
+	scr_memsetw(vc->vc_screenbuf,
 		    erase,
 		    vc->vc_size_row * logo_lines);
 
@@ -615,7 +615,7 @@ static void fbcon_prepare_logo(struct vc_data *vc, struct fb_info *info,
 	}
 
 	if (save) {
-		q = (unsigned short *) (vc->vc_origin +
+		q = (unsigned short *) ((unsigned long)vc->vc_screenbuf +
 					vc->vc_size_row *
 					rows);
 		scr_memcpyw(q, save, array3_size(logo_lines, new_cols, 2));
@@ -1523,7 +1523,7 @@ static void fbcon_redraw_move(struct vc_data *vc, struct fbcon_display *p,
 			      int line, int count, int dy)
 {
 	unsigned short *s = (unsigned short *)
-		(vc->vc_origin + vc->vc_size_row * line);
+		((unsigned long)vc->vc_screenbuf + vc->vc_size_row * line);
 
 	while (count--) {
 		unsigned short *start = s;
@@ -1558,7 +1558,7 @@ static void fbcon_redraw_blit(struct vc_data *vc, struct fb_info *info,
 {
 	int offset = ycount * vc->vc_cols;
 	unsigned short *d = (unsigned short *)
-	    (vc->vc_origin + vc->vc_size_row * line);
+	    ((unsigned long)vc->vc_screenbuf + vc->vc_size_row * line);
 	unsigned short *s = d + offset;
 	struct fbcon_ops *ops = info->fbcon_par;
 
@@ -1607,7 +1607,7 @@ static void fbcon_redraw(struct vc_data *vc, struct fbcon_display *p,
 			 int line, int count, int offset)
 {
 	unsigned short *d = (unsigned short *)
-	    (vc->vc_origin + vc->vc_size_row * line);
+	    ((unsigned long)vc->vc_screenbuf + vc->vc_size_row * line);
 	unsigned short *s = d + offset;
 
 	while (count--) {
@@ -1750,7 +1750,7 @@ static bool fbcon_scroll(struct vc_data *vc, unsigned int t, unsigned int b,
 			fbcon_redraw_blit(vc, info, p, t, b - t - count,
 				     count);
 			fbcon_clear(vc, b - count, 0, count, vc->vc_cols);
-			scr_memsetw((unsigned short *) (vc->vc_origin +
+			scr_memsetw((unsigned short *) ((unsigned long) vc->vc_screenbuf +
 							vc->vc_size_row *
 							(b - count)),
 				    vc->vc_video_erase_char,
@@ -1821,7 +1821,7 @@ static bool fbcon_scroll(struct vc_data *vc, unsigned int t, unsigned int b,
 			fbcon_redraw(vc, p, t, b - t - count,
 				     count * vc->vc_cols);
 			fbcon_clear(vc, b - count, 0, count, vc->vc_cols);
-			scr_memsetw((unsigned short *) (vc->vc_origin +
+			scr_memsetw((unsigned short *) ((unsigned long) vc->vc_screenbuf +
 							vc->vc_size_row *
 							(b - count)),
 				    vc->vc_video_erase_char,
@@ -1838,7 +1838,7 @@ static bool fbcon_scroll(struct vc_data *vc, unsigned int t, unsigned int b,
 			fbcon_redraw_blit(vc, info, p, b - 1, b - t - count,
 				     -count);
 			fbcon_clear(vc, t, 0, count, vc->vc_cols);
-			scr_memsetw((unsigned short *) (vc->vc_origin +
+			scr_memsetw((unsigned short *) ((unsigned long) vc->vc_screenbuf +
 							vc->vc_size_row *
 							t),
 				    vc->vc_video_erase_char,
@@ -1907,7 +1907,7 @@ static bool fbcon_scroll(struct vc_data *vc, unsigned int t, unsigned int b,
 			fbcon_redraw(vc, p, b - 1, b - t - count,
 				     -count * vc->vc_cols);
 			fbcon_clear(vc, t, 0, count, vc->vc_cols);
-			scr_memsetw((unsigned short *) (vc->vc_origin +
+			scr_memsetw((unsigned short *) ((unsigned long) vc->vc_screenbuf +
 							vc->vc_size_row *
 							t),
 				    vc->vc_video_erase_char,
@@ -2167,7 +2167,7 @@ static int fbcon_switch(struct vc_data *vc)
 		logo_shown = fg_console;
 		fb_show_logo(info, ops->rotate);
 		update_region(vc,
-			      vc->vc_origin + vc->vc_size_row * vc->vc_top,
+			      (unsigned long)vc->vc_screenbuf + vc->vc_size_row * vc->vc_top,
 			      vc->vc_size_row * (vc->vc_bottom -
 						 vc->vc_top) / 2);
 		return 0;
@@ -2334,7 +2334,7 @@ static void set_vc_hi_font(struct vc_data *vc, bool set)
 		/* ++Edmund: reorder the attribute bits */
 		if (vc->vc_can_do_color) {
 			unsigned short *cp =
-			    (unsigned short *) vc->vc_origin;
+			    vc->vc_screenbuf;
 			int count = vc->vc_screenbuf_size / 2;
 			unsigned short c;
 			for (; count > 0; count--, cp++) {
@@ -2357,7 +2357,7 @@ static void set_vc_hi_font(struct vc_data *vc, bool set)
 		/* ++Edmund: reorder the attribute bits */
 		{
 			unsigned short *cp =
-			    (unsigned short *) vc->vc_origin;
+			    vc->vc_screenbuf;
 			int count = vc->vc_screenbuf_size / 2;
 			unsigned short c;
 			for (; count > 0; count--, cp++) {
@@ -2587,8 +2587,10 @@ static void fbcon_set_palette(struct vc_data *vc, const unsigned char *table)
 
 /* As we might be inside of softback, we may work with non-contiguous buffer,
    that's why we have to use a separate routine. */
-static void fbcon_invert_region(struct vc_data *vc, u16 * p, int cnt)
+static void fbcon_invert_region(struct vc_data *vc, int offset, int cnt)
 {
+	u16 *p = (u16*)((unsigned long)vc->vc_screenbuf + (offset << 1));
+
 	while (cnt--) {
 		u16 a = scr_readw(p);
 		if (!vc->vc_can_do_color)

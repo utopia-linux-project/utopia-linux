@@ -343,9 +343,11 @@ static u8 sticon_build_attr(struct vc_data *conp, u8 color,
 		return (bg << 3) | fg;
 }
 
-static void sticon_invert_region(struct vc_data *conp, u16 *p, int count)
+static void sticon_invert_region(struct vc_data *conp, int offset, int count)
 {
     int col = 1; /* vga_can_do_color; */
+
+    u16 *p = conp->vc_screenbuf + offset;
 
     while (count--) {
 	u16 a = scr_readw(p);

@@ -414,8 +414,10 @@ static u8 mdacon_build_attr(struct vc_data *c, u8 color,
 		(blink << 7);
 }
 
-static void mdacon_invert_region(struct vc_data *c, u16 *p, int count)
+static void mdacon_invert_region(struct vc_data *c, int offset, int count)
 {
+	u16 *p = c->vc_screenbuf + offset;
+
 	for (; count > 0; count--) {
 		scr_writew(scr_readw(p) ^ 0x0800, p);
 		p++;

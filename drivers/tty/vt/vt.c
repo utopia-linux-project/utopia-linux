@@ -282,16 +282,9 @@ static inline bool con_should_update(const struct vc_data *vc)
 	return con_is_visible(vc) && !console_blanked;
 }
 
-static inline unsigned short *screenpos(const struct vc_data *vc, int offset,
-		bool viewed)
+static inline unsigned short *screenpos(const struct vc_data *vc, int offset)
 {
-	unsigned short *p;
-	
-	if (!viewed)
-		p = (unsigned short *)(vc->vc_origin + offset);
-	else
-		p = (unsigned short *)(vc->vc_visible_origin + offset);
-	return p;
+	return vc->vc_screenbuf + offset;
 }
 
 /* Called  from the keyboard irq path.. */
@@ -325,8 +318,8 @@ static void con_scroll(struct vc_data *vc, unsigned int top,
 			vc->vc_sw->con_scroll(vc, top, bottom, dir, nr))
 		return;
 
-	src = clear = (u16 *)(vc->vc_origin + vc->vc_size_row * top);
-	dst = (u16 *)(vc->vc_origin + vc->vc_size_row * (top + nr));
+	src = clear = (u16 *)((unsigned long) vc->vc_screenbuf + vc->vc_size_row * top);
+	dst = (u16 *)((unsigned long) vc->vc_screenbuf + vc->vc_size_row * (top + nr));
 
 	if (dir == SM_UP) {
 		clear = src + (rows - nr) * vc->vc_cols;
@@ -342,7 +335,7 @@ static void do_update_region(struct vc_data *vc, unsigned long start, int count)
 	u16 *p;
 
 	p = (u16 *) start;
-	offset = (start - vc->vc_origin) / 2;
+	offset = (start - (unsigned long) vc->vc_screenbuf) / 2;
 	xx = offset % vc->vc_cols;
 	yy = offset / vc->vc_cols;
 
@@ -439,16 +432,16 @@ static void update_attr(struct vc_data *vc)
 }
 
 /* Note: inverting the screen twice should revert to the original state */
-void invert_region(struct vc_data *vc, int offset, int count, bool viewed)
+void invert_region(struct vc_data *vc, int offset, int count)
 {
 	unsigned short *p;
 
 	WARN_CONSOLE_UNLOCKED();
 
 	count /= 2;
-	p = screenpos(vc, offset, viewed);
+	p = screenpos(vc, offset);
 	if (vc->vc_sw->con_invert_region) {
-		vc->vc_sw->con_invert_region(vc, p, count);
+		vc->vc_sw->con_invert_region(vc, offset, count);
 	} else {
 		u16 *q = p;
 		int cnt = count;
@@ -491,14 +484,21 @@ void invert_region(struct vc_data *vc, int offset, int count, bool viewed)
 void complement_pos(struct vc_data *vc, int offset)
 {
 	static int old_offset = -1;
-	static unsigned short old;
+	static u16 old;
 	static unsigned short oldx, oldy;
+
+	if (vc && vc->vc_sw && vc->vc_sw->con_complement_pos) {
+		if (con_should_update(vc))
+			vc->vc_sw->con_complement_pos(vc, offset);
+		// TODO: notify_update() ??
+		return;
+	}
 
 	WARN_CONSOLE_UNLOCKED();
 
 	if (old_offset != -1 && old_offset >= 0 &&
 	    old_offset < vc->vc_screenbuf_size) {
-		scr_writew(old, screenpos(vc, old_offset, true));
+		scr_writew(old, screenpos(vc, old_offset));
 		if (con_should_update(vc))
 			vc->vc_sw->con_putc(vc, old, oldy, oldx);
 		notify_update(vc);
@@ -510,7 +510,7 @@ void complement_pos(struct vc_data *vc, int offset)
 	    offset < vc->vc_screenbuf_size) {
 		unsigned short new;
 		unsigned short *p;
-		p = screenpos(vc, offset, true);
+		p = screenpos(vc, offset);
 		old = scr_readw(p);
 		new = old ^ vc->vc_complement_mask;
 		scr_writew(new, p);
@@ -576,19 +576,10 @@ static void reset_origin(struct vc_data *vc)
 	if (!con_is_visible(vc) ||
 	    !vc->vc_sw->con_reset_origin ||
 	    !vc->vc_sw->con_reset_origin(vc))
-		vc->vc_origin = (unsigned long)vc->vc_screenbuf;
-	vc->vc_visible_origin = vc->vc_origin;
-	vc->vc_scr_end = vc->vc_origin + vc->vc_screenbuf_size;
-	vc->vc_pos = vc->vc_origin + vc->vc_size_row * vc->state.y +
+		;
+	vc->vc_scr_end = (unsigned long)vc->vc_screenbuf + vc->vc_screenbuf_size;
+	vc->vc_pos = (unsigned long)vc->vc_screenbuf + vc->vc_size_row * vc->state.y +
 		2 * vc->state.x;
-}
-
-static void save_screen(struct vc_data *vc)
-{
-	WARN_CONSOLE_UNLOCKED();
-
-	if (vc->vc_sw->con_save_screen)
-		vc->vc_sw->con_save_screen(vc);
 }
 
 static void flush_scrollback(struct vc_data *vc)
@@ -619,13 +610,14 @@ static void flush_scrollback(struct vc_data *vc)
 
 void clear_buffer_attributes(struct vc_data *vc)
 {
-	unsigned short *p = (unsigned short *)vc->vc_origin;
+	unsigned short *p = vc->vc_screenbuf;
 	int count = vc->vc_screenbuf_size / 2;
 	int mask = vc->vc_hi_font_mask | 0xff;
 
 	for (; count > 0; count--, p++) {
 		scr_writew((scr_readw(p)&mask) | (vc->vc_video_erase_char & ~mask), p);
 	}
+	// TODO: This needs to be followed by updating the screen.
 }
 
 void redraw_screen(struct vc_data *vc, int is_switch)
@@ -650,7 +642,6 @@ void redraw_screen(struct vc_data *vc, int is_switch)
 		fg_console = vc->vc_num;
 		hide_cursor(old_vc);
 		if (!con_is_visible(old_vc)) {
-			save_screen(old_vc);
 			reset_origin(old_vc);
 		}
 		if (tty0dev)
@@ -679,7 +670,7 @@ void redraw_screen(struct vc_data *vc, int is_switch)
 		}
 
 		if (update && vc->vc_mode != KD_GRAPHICS)
-			do_update_region(vc, vc->vc_origin, vc->vc_screenbuf_size / 2);
+			do_update_region(vc, (unsigned long)vc->vc_screenbuf, vc->vc_screenbuf_size / 2);
 	}
 	set_cursor(vc);
 	if (is_switch) {
@@ -903,7 +894,7 @@ static int vc_do_resize(struct tty_struct *tty, struct vc_data *vc,
 
 	rlth = min(old_row_size, new_row_size);
 	rrem = new_row_size - rlth;
-	old_origin = vc->vc_origin;
+	old_origin = (long) vc->vc_screenbuf;
 	new_origin = (long) newscreen;
 	new_scr_end = new_origin + new_screen_size;
 
@@ -1134,7 +1125,7 @@ static void gotoxy(struct vc_data *vc, int new_x, int new_y)
 		vc->state.y = max_y - 1;
 	else
 		vc->state.y = new_y;
-	vc->vc_pos = vc->vc_origin + vc->state.y * vc->vc_size_row +
+	vc->vc_pos = (unsigned long)vc->vc_screenbuf + vc->state.y * vc->vc_size_row +
 		(vc->state.x << 1);
 	vc->vc_need_wrap = 0;
 }
@@ -1219,15 +1210,15 @@ static void csi_J(struct vc_data *vc, int vpar)
 			start = (unsigned short *)vc->vc_pos;
 			break;
 		case 1:	/* erase from start to cursor */
-			count = ((vc->vc_pos - vc->vc_origin) >> 1) + 1;
-			start = (unsigned short *)vc->vc_origin;
+			count = ((vc->vc_pos - (unsigned long)vc->vc_screenbuf) >> 1) + 1;
+			start = vc->vc_screenbuf;
 			break;
 		case 3: /* include scrollback */
 			flush_scrollback(vc);
 			fallthrough;
 		case 2: /* erase whole display */
 			count = vc->vc_cols * vc->vc_rows;
-			start = (unsigned short *)vc->vc_origin;
+			start = vc->vc_screenbuf;
 			break;
 		default:
 			return;
@@ -1532,8 +1523,7 @@ static void set_mode(struct vc_data *vc, int on_off)
 				if (vc->vc_decscnm != on_off) {
 					vc->vc_decscnm = on_off;
 					invert_region(vc, 0,
-							vc->vc_screenbuf_size,
-							false);
+							vc->vc_screenbuf_size);
 					update_attr(vc);
 				}
 				break;
@@ -2142,7 +2132,7 @@ static void do_con_trol(struct tty_struct *tty, struct vc_data *vc, int c)
 			csi_J(vc, 2);
 			vc->vc_video_erase_char =
 				(vc->vc_video_erase_char & 0xff00) | ' ';
-			do_update_region(vc, vc->vc_origin, vc->vc_screenbuf_size / 2);
+			do_update_region(vc, (unsigned long)vc->vc_screenbuf, vc->vc_screenbuf_size / 2);
 		}
 		return;
 	case ESsetG0: case ESsetG1:
@@ -3063,7 +3053,7 @@ static void vc_init(struct vc_data *vc, unsigned int rows,
 	vc->vc_screenbuf_size = vc->vc_rows * vc->vc_size_row;
 
 	reset_origin(vc);
-	vc->vc_pos = vc->vc_origin;
+	vc->vc_pos = (unsigned long) vc->vc_screenbuf;
 	reset_vc(vc);
 	for (j=k=0; j<16; j++) {
 		vc->vc_palette[k++] = default_red[j] ;
@@ -3129,13 +3119,12 @@ static int __init con_init(void)
 		visual_init(vc, currcons, 1);
 		/* Assuming vc->vc_{cols,rows,screenbuf_size} are sane here. */
 		vc->vc_screenbuf = kzalloc(vc->vc_screenbuf_size, GFP_NOWAIT);
-		vc_init(vc, vc->vc_rows, vc->vc_cols,
-			currcons || !vc->vc_sw->con_save_screen);
+		vc_init(vc, vc->vc_rows, vc->vc_cols, currcons);
 	}
 	currcons = fg_console = 0;
 	master_display_fg = vc = vc_cons[currcons].d;
 	reset_origin(vc);
-	save_screen(vc);
+	// TODO: Some way for x86 architectures to set initial cursor position from screen_info.orig_x and screen_info.orig_y. The previous method was a giant hack, and there's no space for it anymore.
 	gotoxy(vc, vc->state.x, vc->state.y);
 	csi_J(vc, 0);
 	update_screen(vc);
@@ -3289,12 +3278,10 @@ static int do_bind_con_driver(const struct consw *csw, int first, int last,
 
 		if (con_is_visible(vc)) {
 			k = i;
-			save_screen(vc);
 		}
 
 		old_was_color = vc->vc_can_do_color;
 		vc->vc_sw->con_deinit(vc);
-		vc->vc_origin = (unsigned long)vc->vc_screenbuf;
 		visual_init(vc, i, 0);
 		reset_origin(vc);
 		update_attr(vc);
@@ -3965,7 +3952,6 @@ void do_blank_screen(int entering_gfx)
 	/* entering graphics mode? */
 	if (entering_gfx) {
 		hide_cursor(vc);
-		save_screen(vc);
 		vc->vc_sw->con_blank(vc, -1, 1);
 		console_blanked = fg_console + 1;
 		blank_state = blank_off;
@@ -3985,7 +3971,6 @@ void do_blank_screen(int entering_gfx)
 	del_timer_sync(&console_timer);
 	blank_timer_expired = 0;
 
-	save_screen(vc);
 	/* In case we need to reset origin, blanking hook returns 1 */
 	i = vc->vc_sw->con_blank(vc, vesa_off_interval ? 1 : (vesa_blank_mode + 1), 0);
 	console_blanked = fg_console + 1;
@@ -4346,8 +4331,16 @@ int con_font_op(struct vc_data *vc, struct console_font_op *op)
 /* used by selection */
 u16 screen_glyph(const struct vc_data *vc, int offset)
 {
-	u16 w = scr_readw(screenpos(vc, offset, true));
-	u16 c = w & 0xff;
+	u16 w, c;
+
+	if (vc->vc_sw->con_screen_glyph) {
+		int y = offset / vc->vc_cols;
+		int x = offset % vc->vc_cols;
+		return vc->vc_sw->con_screen_glyph(vc, y, x);
+	}
+
+	w = scr_readw(screenpos(vc, offset));
+	c = w & 0xff;
 
 	if (w & vc->vc_hi_font_mask)
 		c |= 0x100;
@@ -4356,9 +4349,9 @@ u16 screen_glyph(const struct vc_data *vc, int offset)
 EXPORT_SYMBOL_GPL(screen_glyph);
 
 /* used by vcs - note the word offset */
-unsigned short *screen_pos(const struct vc_data *vc, int w_offset, bool viewed)
+unsigned short *screen_pos(const struct vc_data *vc, int w_offset, bool /*viewed*/)
 {
-	return screenpos(vc, 2 * w_offset, viewed);
+	return screenpos(vc, 2 * w_offset);
 }
 EXPORT_SYMBOL_GPL(screen_pos);
 
@@ -4390,46 +4383,6 @@ void vcs_scr_updated(struct vc_data *vc)
 {
 	notify_update(vc);
 }
-
-void vc_scrollback_helper(struct vc_data *c, int lines,
-		unsigned int rolled_over, void *base, unsigned int size)
-{
-	unsigned long ubase = (unsigned long)base;
-	ptrdiff_t scr_end = (void *)c->vc_scr_end - base;
-	ptrdiff_t vorigin = (void *)c->vc_visible_origin - base;
-	ptrdiff_t origin = (void *)c->vc_origin - base;
-	int margin = c->vc_size_row * 4;
-	int from, wrap, from_off, avail;
-
-	/* Turn scrollback off */
-	if (!lines) {
-		c->vc_visible_origin = c->vc_origin;
-		return;
-	}
-
-	/* Do we have already enough to allow jumping from 0 to the end? */
-	if (rolled_over > scr_end + margin) {
-		from = scr_end;
-		wrap = rolled_over + c->vc_size_row;
-	} else {
-		from = 0;
-		wrap = size;
-	}
-
-	from_off = (vorigin - from + wrap) % wrap + lines * c->vc_size_row;
-	avail = (origin - from + wrap) % wrap;
-
-	/* Only a little piece would be left? Show all incl. the piece! */
-	if (avail < 2 * margin)
-		margin = 0;
-	if (from_off < margin)
-		from_off = 0;
-	if (from_off > avail - margin)
-		from_off = avail;
-
-	c->vc_visible_origin = ubase + (from + from_off) % wrap;
-}
-EXPORT_SYMBOL_GPL(vc_scrollback_helper);
 
 /*
  *	Visible symbols for modules
