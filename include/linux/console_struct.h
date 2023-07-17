@@ -128,7 +128,6 @@ struct vc_data {
 	int		vt_newvt;
 	wait_queue_head_t paste_wait;
 	/* mode flags */
-	unsigned int	vc_toggle_meta	: 1;	/* Toggle high bit? */
 	unsigned int	vc_decscnm	: 1;	/* Screen Mode */
 	unsigned int	vc_decom	: 1;	/* Origin Mode */
 	unsigned int	vc_decawm	: 1;	/* Autowrap Mode */

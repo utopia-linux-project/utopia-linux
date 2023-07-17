@@ -1710,8 +1710,6 @@ static void reset_terminal(struct vc_data *vc, int do_clear)
 	vc->vc_utf              = default_utf8;
 	vc->vc_utf_count	= 0;
 
-	vc->vc_toggle_meta	= 0;
-
 	vc->vc_decscnm		= 0;
 	vc->vc_decom		= 0;
 	vc->vc_decawm		= 1;
@@ -2298,9 +2296,6 @@ static int vc_translate(struct vc_data *vc, unsigned char c, bool *rescan)
 
 	if (vc->vc_utf)
 		return vc_decode_utf8(vc, c, rescan);
-
-	if (vc->vc_toggle_meta)
-		return c | 0x80;
 
 	if (vc->state.charset && c > 32 && c < 127) {
 		/*
