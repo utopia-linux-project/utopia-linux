@@ -900,9 +900,6 @@ int vt_ioctl(struct tty_struct *tty,
 			return -EPERM;
 		vt_dont_switch = false;
 		break;
-	case VT_GETHIFONTMASK:
-		return put_user(vc->vc_hi_font_mask,
-					(unsigned short __user *)arg);
 	case VT_WAITEVENT:
 		return vt_event_wait_ioctl((struct vt_event __user *)arg);
 	default:

@@ -307,14 +307,14 @@ static int get_color(struct vc_data *vc, struct fb_info *info,
 	int color = 0;
 
 	if (console_blanked) {
-		unsigned short charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
+		unsigned short charmask = 0xff;
 
 		c = vc->vc_video_erase.celldata & charmask;
 	}
 
 	if (depth != 1)
-		color = (is_fg) ? attr_fgcol((vc->vc_hi_font_mask) ? 9 : 8, c)
-			: attr_bgcol((vc->vc_hi_font_mask) ? 13 : 12, c);
+		color = (is_fg) ? attr_fgcol(8, c)
+			: attr_bgcol(12, c);
 
 	switch (depth) {
 	case 1:
@@ -1068,13 +1068,6 @@ static void fbcon_init(struct vc_data *vc, int init)
 
 	vc->vc_can_do_color = (fb_get_color_depth(&info->var, &info->fix)!=1);
 	vc->vc_complement_mask = vc->vc_can_do_color ? 0x7700 : 0x0800;
-	if (vc->vc_font.charcount == 256) {
-		vc->vc_hi_font_mask = 0;
-	} else {
-		vc->vc_hi_font_mask = 0x100;
-		if (vc->vc_can_do_color)
-			vc->vc_complement_mask <<= 1;
-	}
 
 	ops = info->fbcon_par;
 	ops->cur_blink_jiffies = msecs_to_jiffies(vc->vc_cur_blink_ms);
@@ -1154,8 +1147,6 @@ static void fbcon_free_font(struct fbcon_display *p)
 	p->userfont = 0;
 }
 
-static void set_vc_hi_font(struct vc_data *vc, bool set);
-
 static void fbcon_release_all(void)
 {
 	struct fb_info *info;
@@ -1208,9 +1199,6 @@ finished:
 
 	fbcon_free_font(p);
 	vc->vc_font.data = NULL;
-
-	if (vc->vc_hi_font_mask && vc->vc_screenbuf)
-		set_vc_hi_font(vc, false);
 
 	if (!con_is_bound(&fb_con))
 		fbcon_release_all();
@@ -1381,13 +1369,6 @@ static void fbcon_set_disp(struct fb_info *info, struct fb_var_screeninfo *var,
 	ops->var = info->var;
 	vc->vc_can_do_color = (fb_get_color_depth(&info->var, &info->fix)!=1);
 	vc->vc_complement_mask = vc->vc_can_do_color ? 0x7700 : 0x0800;
-	if (vc->vc_font.charcount == 256) {
-		vc->vc_hi_font_mask = 0;
-	} else {
-		vc->vc_hi_font_mask = 0x100;
-		if (vc->vc_can_do_color)
-			vc->vc_complement_mask <<= 1;
-	}
 
 	cols = FBCON_SWAP(ops->rotate, info->var.xres, info->var.yres);
 	rows = FBCON_SWAP(ops->rotate, info->var.yres, info->var.xres);
@@ -2135,9 +2116,6 @@ static int fbcon_switch(struct vc_data *vc)
 	vc->vc_can_do_color = (fb_get_color_depth(&info->var, &info->fix)!=1);
 	vc->vc_complement_mask = vc->vc_can_do_color ? 0x7700 : 0x0800;
 
-	if (vc->vc_font.charcount > 256)
-		vc->vc_complement_mask <<= 1;
-
 	updatescrollmode(p, info, vc);
 
 	switch (fb_scrollmode(p)) {
@@ -2182,8 +2160,7 @@ static void fbcon_generic_blank(struct vc_data *vc, struct fb_info *info,
 				int blank)
 {
 	if (blank) {
-		unsigned short charmask = vc->vc_hi_font_mask ?
-			0x1ff : 0xff;
+		unsigned short charmask = 0xff;
 		struct vc_cell oldc;
 
 		oldc = vc->vc_video_erase;
@@ -2269,7 +2246,7 @@ static int fbcon_get_font(struct vc_data *vc, struct console_font *font, unsigne
 	font->height = vc->vc_font.height;
 	if (font->height > vpitch)
 		return -ENOSPC;
-	font->charcount = vc->vc_hi_font_mask ? 512 : 256;
+	font->charcount = 256;
 	if (!font->data)
 		return 0;
 
@@ -2324,65 +2301,6 @@ static int fbcon_get_font(struct vc_data *vc, struct console_font *font, unsigne
 	return 0;
 }
 
-/* set/clear vc_hi_font_mask and update vc attrs accordingly */
-static void set_vc_hi_font(struct vc_data *vc, bool set)
-{
-	if (!set) {
-		vc->vc_hi_font_mask = 0;
-		if (vc->vc_can_do_color) {
-			vc->vc_complement_mask >>= 1;
-			vc->vc_s_complement_mask >>= 1;
-		}
-
-		/* ++Edmund: reorder the attribute bits */
-		if (vc->vc_can_do_color) {
-			struct vc_cell *cp = vc->vc_screenbuf;
-			int count = vc->vc_screen_size;
-			unsigned short c;
-			for (; count > 0; count--, cp++) {
-				c = readcell(cp);
-				writecell(((c & 0xfe00) >> 1) |
-					   (c & 0xff), cp);
-			}
-			c = vc->vc_video_erase.celldata;
-			vc->vc_video_erase.celldata =
-			    ((c & 0xfe00) >> 1) | (c & 0xff);
-			vc->vc_attr >>= 1;
-		}
-	} else {
-		vc->vc_hi_font_mask = 0x100;
-		if (vc->vc_can_do_color) {
-			vc->vc_complement_mask <<= 1;
-			vc->vc_s_complement_mask <<= 1;
-		}
-
-		/* ++Edmund: reorder the attribute bits */
-		{
-			struct vc_cell *cp = vc->vc_screenbuf;
-			int count = vc->vc_screen_size;
-			unsigned short c;
-			for (; count > 0; count--, cp++) {
-				unsigned short newc;
-				c = readcell(cp);
-				if (vc->vc_can_do_color)
-					newc =
-					    ((c & 0xff00) << 1) | (c &
-								   0xff);
-				else
-					newc = c & ~0x100;
-				writecell(newc, cp);
-			}
-			c = vc->vc_video_erase.celldata;
-			if (vc->vc_can_do_color) {
-				vc->vc_video_erase.celldata =
-				    ((c & 0xff00) << 1) | (c & 0xff);
-				vc->vc_attr <<= 1;
-			} else
-				vc->vc_video_erase.celldata = c & ~0x100;
-		}
-	}
-}
-
 static int fbcon_do_set_font(struct vc_data *vc, int w, int h, int charcount,
 			     const u8 * data, int userfont)
 {
@@ -2407,10 +2325,6 @@ static int fbcon_do_set_font(struct vc_data *vc, int w, int h, int charcount,
 	vc->vc_font.width = w;
 	vc->vc_font.height = h;
 	vc->vc_font.charcount = charcount;
-	if (vc->vc_hi_font_mask && charcount == 256)
-		set_vc_hi_font(vc, false);
-	else if (!vc->vc_hi_font_mask && charcount == 512)
-		set_vc_hi_font(vc, true);
 
 	if (resize) {
 		int cols, rows;
@@ -2596,9 +2510,6 @@ static void fbcon_invert_region(struct vc_data *vc, int offset, int cnt)
 		u16 a = readcell(p);
 		if (!vc->vc_can_do_color)
 			a ^= 0x0800;
-		else if (vc->vc_hi_font_mask == 0x100)
-			a = ((a) & 0x11ff) | (((a) & 0xe000) >> 4) |
-			    (((a) & 0x0e00) << 4);
 		else
 			a = ((a) & 0x88ff) | (((a) & 0x7000) >> 4) |
 			    (((a) & 0x0700) << 4);

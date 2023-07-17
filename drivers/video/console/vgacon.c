@@ -93,7 +93,6 @@ static unsigned char	vga_video_type		__read_mostly;	/* Card type */
 static int		vga_vesa_blanked;
 static bool 		vga_palette_blanked;
 static bool 		vga_is_gfx;
-static bool 		vga_512_chars;
 static int 		vga_video_font_height;
 static int 		vga_scan_lines		__read_mostly;
 static u16		*vga_origin;		/* for scrolling */
@@ -413,8 +412,6 @@ static void vgacon_init(struct vc_data *c, int init)
 		vc_resize(c, vga_video_num_columns, vga_video_num_lines);
 
 	c->vc_complement_mask = 0x7700;
-	if (vga_512_chars)
-		c->vc_hi_font_mask = 0x0800;
 
 	/* Only set the default if the user didn't deliberately override it */
 	if (global_cursor_default == -1)
@@ -875,10 +872,8 @@ static int vgacon_blank(struct vc_data *c, int blank, int mode_switch)
 #define blackwmap 0xa0000
 #define cmapsz 8192
 
-static int vgacon_do_font_op(struct vgastate *state, char *arg, int set,
-		bool ch512)
+static int vgacon_do_font_op(struct vgastate *state, char *arg, int set)
 {
-	unsigned short video_port_status = vga_video_port_reg + 6;
 	int font_select = 0x00, beg, i;
 	char *charmap;
 	bool clear_attribs = false;
@@ -891,13 +886,11 @@ static int vgacon_do_font_op(struct vgastate *state, char *arg, int set,
 	}
 
 	/*
-	 * All fonts are loaded in slot 0 (0:1 for 512 ch)
+	 * All fonts are loaded in slot 0
 	 */
 
 	if (!arg)
 		return -EINVAL;	/* Return to default font not supported */
-
-	font_select = ch512 ? 0x04 : 0x00;
 
 	raw_spin_lock_irq(&vga_lock);
 	/* First, the Sequencer */
@@ -928,26 +921,6 @@ static int vgacon_do_font_op(struct vgastate *state, char *arg, int set,
 				arg[i] = vga_readb(charmap + i);
 				cond_resched();
 			}
-
-		/*
-		 * In 512-character mode, the character map is not contiguous if
-		 * we want to remain EGA compatible -- which we do
-		 */
-
-		if (ch512) {
-			charmap += 2 * cmapsz;
-			arg += cmapsz;
-			if (set)
-				for (i = 0; i < cmapsz; i++) {
-					vga_writeb(arg[i], charmap + i);
-					cond_resched();
-				}
-			else
-				for (i = 0; i < cmapsz; i++) {
-					arg[i] = vga_readb(charmap + i);
-					cond_resched();
-				}
-		}
 	}
 
 	raw_spin_lock_irq(&vga_lock);
@@ -970,31 +943,13 @@ static int vgacon_do_font_op(struct vgastate *state, char *arg, int set,
 	/* map starts at b800:0 or b000:0 */
 	vga_wgfx(state->vgabase, VGA_GFX_MISC, beg);
 
-	/* if 512 char mode is already enabled don't re-enable it. */
-	if ((set) && (ch512 != vga_512_chars)) {
-		vga_512_chars = ch512;
-		/* 256-char: enable intensity bit
-		   512-char: disable intensity bit */
-		inb_p(video_port_status);	/* clear address flip-flop */
-		/* color plane enable register */
-		vga_wattr(state->vgabase, VGA_ATC_PLANE_ENABLE, ch512 ? 0x07 : 0x0f);
-		/* Wilton (1987) mentions the following; I don't know what
-		   it means, but it works, and it appears necessary */
-		inb_p(video_port_status);
-		vga_wattr(state->vgabase, VGA_AR_ENABLE_DISPLAY, 0);	
-		clear_attribs = true;
-	}
 	raw_spin_unlock_irq(&vga_lock);
 
 	if (clear_attribs) {
 		for (i = 0; i < MAX_NR_CONSOLES; i++) {
 			struct vc_data *c = vc_cons[i].d;
 			if (c && c->vc_sw == &vga_con) {
-				/* force hi font mask to 0, so we always clear
-				   the bit on either transition */
-				c->vc_hi_font_mask = 0x00;
 				clear_buffer_attributes(c);
-				c->vc_hi_font_mask = ch512 ? 0x0800 : 0;
 			}
 		}
 	}
@@ -1071,10 +1026,10 @@ static int vgacon_font_set(struct vc_data *c, struct console_font *font,
 		return -EINVAL;
 
 	if (font->width != VGA_FONTWIDTH || font->height > 32 || vpitch != 32 ||
-	    (charcount != 256 && charcount != 512))
+	    charcount != 256)
 		return -EINVAL;
 
-	rc = vgacon_do_font_op(&vgastate, font->data, 1, charcount == 512);
+	rc = vgacon_do_font_op(&vgastate, font->data, 1);
 	if (rc)
 		return rc;
 
@@ -1090,10 +1045,10 @@ static int vgacon_font_get(struct vc_data *c, struct console_font *font, unsigne
 
 	font->width = VGA_FONTWIDTH;
 	font->height = c->vc_font.height;
-	font->charcount = vga_512_chars ? 512 : 256;
+	font->charcount = 256;
 	if (!font->data)
 		return 0;
-	return vgacon_do_font_op(&vgastate, font->data, 0, vga_512_chars);
+	return vgacon_do_font_op(&vgastate, font->data, 0);
 }
 
 static int vgacon_resize(struct vc_data *c, unsigned int width,

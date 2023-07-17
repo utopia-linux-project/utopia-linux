@@ -437,8 +437,6 @@ static u8 build_attr(struct vc_data *vc, u8 _color,
 		a ^= 0x80;
 	if (_intensity == VCI_BOLD)
 		a ^= 0x08;
-	if (vc->vc_hi_font_mask == 0x100)
-		a <<= 1;
 	return a;
 	}
 }
@@ -474,15 +472,6 @@ void invert_region(struct vc_data *vc, int offset, int count)
 			    a ^= 0x0800;
 			    writecell(a, q);
 			    q++;
-			}
-		} else if (vc->vc_hi_font_mask == 0x100) {
-			while (cnt--) {
-				a = readcell(q);
-				a = (a & 0x11ff) |
-				   ((a & 0xe000) >> 4) |
-				   ((a & 0x0e00) << 4);
-				writecell(a, q);
-				q++;
 			}
 		} else {
 			while (cnt--) {
@@ -630,7 +619,7 @@ void clear_buffer_attributes(struct vc_data *vc)
 {
 	struct vc_cell *p = vc->vc_screenbuf;
 	int count = vc->vc_screen_size;
-	int mask = vc->vc_hi_font_mask | 0xff;
+	int mask = 0xff;
 
 	for (; count > 0; count--, p++) {
 		writecell((readcell(p) & mask) | (vc->vc_video_erase.celldata & ~mask), p);
@@ -719,7 +708,6 @@ static void visual_init(struct vc_data *vc, int num, int init)
 	__module_get(vc->vc_sw->owner);
 	vc->vc_num = num;
 	vc->vc_display_fg = &master_display_fg;
-	vc->vc_hi_font_mask = 0;
 	vc->vc_complement_mask = 0;
 	vc->vc_can_do_color = 0;
 	vc->vc_cur_blink_ms = DEFAULT_CURSOR_BLINK_MS;
@@ -1605,8 +1593,6 @@ static void setterm_command(struct vc_data *vc)
 		break;
 	case 8:	/* store colors as defaults */
 		vc->vc_def_color = vc->vc_attr;
-		if (vc->vc_hi_font_mask == 0x100)
-			vc->vc_def_color >>= 1;
 		default_attr(vc);
 		update_attr(vc);
 		break;
@@ -2343,11 +2329,6 @@ static inline unsigned char vc_invert_attr(const struct vc_data *vc)
 	if (!vc->vc_can_do_color)
 		return vc->vc_attr ^ 0x08;
 
-	if (vc->vc_hi_font_mask == 0x100)
-		return   (vc->vc_attr & 0x11) |
-			((vc->vc_attr & 0xe0) >> 4) |
-			((vc->vc_attr & 0x0e) << 4);
-
 	return   (vc->vc_attr & 0x88) |
 		((vc->vc_attr & 0x70) >> 4) |
 		((vc->vc_attr & 0x07) << 4);
@@ -2401,7 +2382,7 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 {
 	int next_c;
 	unsigned char vc_attr = vc->vc_attr;
-	u16 himask = vc->vc_hi_font_mask, charmask = himask ? 0x1ff : 0xff;
+	u16 charmask = 0xff;
 	u8 width = 1;
 	bool inverse = false;
 
@@ -2465,10 +2446,7 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 		if (vc->vc_decim)
 			insert_char(vc, 1);
 
-		if (himask)
-			tc = ((tc & 0x100) ? himask : 0) |
-			      (tc &  0xff);
-		tc |= (vc_attr << 8) & ~himask;
+		tc |= (vc_attr << 8);
 
 		writecell(tc, vc->vc_pos);
 
@@ -4361,8 +4339,6 @@ u16 screen_glyph(const struct vc_data *vc, int offset)
 	w = readcell(screenpos(vc, offset));
 	c = w & 0xff;
 
-	if (w & vc->vc_hi_font_mask)
-		c |= 0x100;
 	return c;
 }
 EXPORT_SYMBOL_GPL(screen_glyph);

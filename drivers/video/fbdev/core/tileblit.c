@@ -40,11 +40,10 @@ static void tile_clear(struct vc_data *vc, struct fb_info *info, int sy,
 		       int sx, int height, int width)
 {
 	struct fb_tilerect rect;
-	int bgshift = (vc->vc_hi_font_mask) ? 13 : 12;
-	int fgshift = (vc->vc_hi_font_mask) ? 9 : 8;
+	int bgshift = 12;
+	int fgshift = 8;
 
-	rect.index = vc->vc_video_erase.celldata &
-		((vc->vc_hi_font_mask) ? 0x1ff : 0xff);
+	rect.index = vc->vc_video_erase.celldata & 0xff;
 	rect.fg = attr_fgcol_ec(fgshift, vc, info);
 	rect.bg = attr_bgcol_ec(bgshift, vc, info);
 	rect.sx = sx;
@@ -61,7 +60,7 @@ static void tile_putcs(struct vc_data *vc, struct fb_info *info,
 		       int fg, int bg)
 {
 	struct fb_tileblit blit;
-	unsigned short charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
+	unsigned short charmask = 0xff;
 	int size = sizeof(u32) * count, i;
 
 	blit.sx = xx;

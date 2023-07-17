@@ -104,7 +104,7 @@ static void ccw_clear(struct vc_data *vc, struct fb_info *info, int sy,
 {
 	struct fbcon_ops *ops = info->fbcon_par;
 	struct fb_fillrect region;
-	int bgshift = (vc->vc_hi_font_mask) ? 13 : 12;
+	int bgshift = 12;
 	u32 vyres = GETVYRES(ops->p, info);
 
 	region.color = attr_bgcol_ec(bgshift,vc,info);
@@ -123,7 +123,7 @@ static inline void ccw_putcs_aligned(struct vc_data *vc, struct fb_info *info,
 				    struct fb_image *image, u8 *buf, u8 *dst)
 {
 	struct fbcon_ops *ops = info->fbcon_par;
-	u16 charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
+	u16 charmask = 0xff;
 	u32 idx = (vc->vc_font.height + 7) >> 3;
 	u8 *src;
 
@@ -245,7 +245,7 @@ static void ccw_cursor(struct vc_data *vc, struct fb_info *info, int mode,
 {
 	struct fb_cursor cursor;
 	struct fbcon_ops *ops = info->fbcon_par;
-	unsigned short charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
+	unsigned short charmask = 0xff;
 	int w = (vc->vc_font.height + 7) >> 3, c;
 	int y = real_y(ops->p, vc->state.y);
 	int attribute, use_sw = vc->vc_cursor_type & CUR_SW;

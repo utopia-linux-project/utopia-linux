@@ -66,7 +66,7 @@ static void bit_bmove(struct vc_data *vc, struct fb_info *info, int sy,
 static void bit_clear(struct vc_data *vc, struct fb_info *info, int sy,
 		      int sx, int height, int width)
 {
-	int bgshift = (vc->vc_hi_font_mask) ? 13 : 12;
+	int bgshift = 12;
 	struct fb_fillrect region;
 
 	region.color = attr_bgcol_ec(bgshift, vc, info);
@@ -84,7 +84,7 @@ static inline void bit_putcs_aligned(struct vc_data *vc, struct fb_info *info,
 				     u32 d_pitch, u32 s_pitch, u32 cellsize,
 				     struct fb_image *image, u8 *buf, u8 *dst)
 {
-	u16 charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
+	u16 charmask = 0xff;
 	u32 idx = vc->vc_font.width >> 3;
 	u8 *src;
 
@@ -117,7 +117,7 @@ static inline void bit_putcs_unaligned(struct vc_data *vc,
 				       struct fb_image *image, u8 *buf,
 				       u8 *dst)
 {
-	u16 charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
+	u16 charmask = 0xff;
 	u32 shift_low = 0, mod = vc->vc_font.width % 8;
 	u32 shift_high = 8;
 	u32 idx = vc->vc_font.width >> 3;
@@ -243,7 +243,7 @@ static void bit_cursor(struct vc_data *vc, struct fb_info *info, int mode,
 {
 	struct fb_cursor cursor;
 	struct fbcon_ops *ops = info->fbcon_par;
-	unsigned short charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
+	unsigned short charmask = 0xff;
 	int w = DIV_ROUND_UP(vc->vc_font.width, 8), c;
 	int y = real_y(ops->p, vc->state.y);
 	int attribute, use_sw = vc->vc_cursor_type & CUR_SW;
