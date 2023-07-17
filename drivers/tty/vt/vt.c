@@ -1557,9 +1557,6 @@ static void set_mode(struct vc_data *vc, int on_off)
 			}
 		} else {
 			switch(vc->vc_par[i]) {	/* ANSI modes set/reset */
-			case 3:			/* Monitor (display ctrls) */
-				vc->vc_disp_ctrl = on_off;
-				break;
 			case 4:			/* Insert Mode on/off */
 				vc->vc_decim = on_off;
 				break;
@@ -1713,7 +1710,6 @@ static void reset_terminal(struct vc_data *vc, int do_clear)
 	vc->vc_utf              = default_utf8;
 	vc->vc_utf_count	= 0;
 
-	vc->vc_disp_ctrl	= 0;
 	vc->vc_toggle_meta	= 0;
 
 	vc->vc_decscnm		= 0;
@@ -1795,11 +1791,9 @@ static void do_con_trol(struct tty_struct *tty, struct vc_data *vc, int c)
 		return;
 	case 14:
 		vc->state.charset = 1;
-		vc->vc_disp_ctrl = 1;
 		return;
 	case 15:
 		vc->state.charset = 0;
-		vc->vc_disp_ctrl = 0;
 		return;
 	case 24: case 26:
 		vc->vc_state = ESnormal;
@@ -2302,7 +2296,7 @@ static int vc_translate(struct vc_data *vc, unsigned char c, bool *rescan)
 	if (vc->vc_state != ESnormal)
 		return c;
 
-	if (vc->vc_utf && !vc->vc_disp_ctrl)
+	if (vc->vc_utf)
 		return vc_decode_utf8(vc, c, rescan);
 
 	if (vc->vc_toggle_meta)
@@ -2339,12 +2333,9 @@ static bool vc_is_control(struct vc_data *vc, int c)
 	/*
 	 * A bitmap for codes <32. A bit of 1 indicates that the code
 	 * corresponding to that bit number invokes some special action (such
-	 * as cursor movement) and should not be displayed as a glyph unless
-	 * the disp_ctrl mode is explicitly enabled.
+	 * as cursor movement) and should not be displayed as a glyph.
 	 */
 	static const u32 CTRL_ACTION = 0x0d00ff81;
-	/* Cannot be overridden by disp_ctrl */
-	static const u32 CTRL_ALWAYS = 0x0800f501;
 
 	if (vc->vc_state != ESnormal)
 		return true;
@@ -2355,20 +2346,15 @@ static bool vc_is_control(struct vc_data *vc, int c)
 	/*
 	 * If the original code was a control character we only allow a glyph
 	 * to be displayed if the code is not normally used (such as for cursor
-	 * movement) or if the disp_ctrl mode has been explicitly enabled.
-	 * Certain characters (as given by the CTRL_ALWAYS bitmap) are always
-	 * displayed as control characters, as the console would be pretty
-	 * useless without them; to display an arbitrary font position use the
-	 * direct-to-font zone in UTF-8 mode.
+	 * movement).
+	 * To display an arbitrary font position use the direct-to-font zone in
+	 * UTF-8 mode.
 	 */
 	if (c < 32) {
-		if (vc->vc_disp_ctrl)
-			return CTRL_ALWAYS & BIT(c);
-		else
-			return vc->vc_utf || (CTRL_ACTION & BIT(c));
+		return vc->vc_utf || (CTRL_ACTION & BIT(c));
 	}
 
-	if (c == 127 && !vc->vc_disp_ctrl)
+	if (c == 127)
 		return true;
 
 	if (c == 128 + 27)
@@ -2386,7 +2372,7 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 	u8 width = 1;
 	bool inverse = false;
 
-	if (vc->vc_utf && !vc->vc_disp_ctrl) {
+	if (vc->vc_utf) {
 		if (is_double_width(c)) {
 			width = 2;
 			next_c = ' ';
@@ -2399,7 +2385,7 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 			return -1; /* nothing to display */
 
 		/* Glyph not found */
-		if ((!vc->vc_utf || vc->vc_disp_ctrl || c < 128) &&
+		if ((!vc->vc_utf || c < 128) &&
 				!(c & ~charmask)) {
 			/*
 			 * In legacy mode use the glyph we get by a 1:1
