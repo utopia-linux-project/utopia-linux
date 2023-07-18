@@ -137,6 +137,17 @@ static inline void scr_write(u16 celldata, volatile u16 *p)
 	*p = celldata;
 }
 
+static inline void scr_memset(volatile u16 *p, u16 a, size_t count)
+{
+	while (count--)
+		*p++ = a;
+}
+
+static inline void scr_memmove(u16 *dst, const u16 *src, size_t count)
+{
+	memmove(dst, src, count * sizeof(u16));
+}
+
 /*
  * By replacing the four outb_p with two back to back outw, we can reduce
  * the window of opportunity to see text mislocated to the RHS of the
@@ -842,7 +853,7 @@ static int vgacon_blank(struct vc_data *c, int blank, int mode_switch)
 			return 0;
 		}
 		vgacon_reset_origin(c);
-		scr_memsetw(vga_vram_base, BLANK, c->vc_screen_size * sizeof(u16));
+		scr_memset(vga_vram_base, BLANK, c->vc_screen_size);
 		if (mode_switch)
 			vga_is_gfx = true;
 		return 1;
@@ -1094,6 +1105,7 @@ static bool vgacon_scroll(struct vc_data *c, unsigned int t, unsigned int b,
 {
 	size_t oldo;
 	unsigned int delta;
+	u16 erase;
 
 	if (t || b != c->vc_rows || vga_is_gfx || c->vc_mode != KD_TEXT)
 		return false;
@@ -1101,38 +1113,40 @@ static bool vgacon_scroll(struct vc_data *c, unsigned int t, unsigned int b,
 	if (!vga_hardscroll_enabled || lines >= c->vc_rows / 2)
 		return false;
 
+	erase = c->vc_video_erase.celldata;
+
 	vgacon_restore_screen(c);
 	oldo = vga_origin - vga_vram_base;
 	delta = lines * c->vc_cols;
 	if (dir == SM_UP) {
 		if (vga_origin + c->vc_screen_size + delta >= vga_vram_end) {
-			scr_memmovew(vga_vram_base,
+			scr_memmove(vga_vram_base,
 					vga_origin + delta,
-					(c->vc_screen_size - delta) * sizeof(u16));
+					c->vc_screen_size - delta);
 
 			vga_origin = vga_vram_base;
 			vga_rolled_over = oldo;
 		} else
 			vga_origin += delta;
 
-		scr_memsetw(vga_origin + c->vc_screen_size - delta,
-				c->vc_video_erase.celldata, delta * sizeof(u16));
+		scr_memset(vga_origin + c->vc_screen_size - delta, erase,
+				delta);
 
 		cellmove(c->vc_screenbuf, c->vc_screenbuf + delta,
 				c->vc_screen_size - delta);
 		cellset(c->vc_scr_end - delta, c->vc_video_erase, delta);
 	} else {
 		if (delta > oldo) {
-			scr_memmovew(vga_vram_end - c->vc_screen_size + delta,
+			scr_memmove(vga_vram_end - c->vc_screen_size + delta,
 					vga_origin,
-					(c->vc_screen_size - delta) * sizeof(u16));
+					c->vc_screen_size - delta);
 
 			vga_origin = vga_vram_end - c->vc_screen_size;
 			vga_rolled_over = 0;
 		} else
 			vga_origin -= delta;
 
-		scr_memsetw(vga_origin, c->vc_video_erase.celldata, delta * sizeof(u16));
+		scr_memset(vga_origin, erase, delta);
 
 		cellmove(c->vc_screenbuf + delta,
 				c->vc_screenbuf,
@@ -1152,14 +1166,14 @@ static void vgacon_complement_pointer_pos(struct vc_data *vc, int offset)
 
 	if (old_offset != -1 && old_offset >= 0 &&
 			old_offset < vc->vc_screen_size) {
-		scr_writew(old, vga_visible_origin + old_offset);
+		scr_write(old, vga_visible_origin + old_offset);
 	}
 
 	old_offset = offset;
 
 	if (offset != -1 && offset >= 0 && offset < vc->vc_screen_size) {
-		old = scr_readw(vga_visible_origin + offset);
-		scr_writew(old ^ vc->vc_complement_mask,
+		old = scr_read(vga_visible_origin + offset);
+		scr_write(old ^ vc->vc_complement_mask,
 				vga_visible_origin + offset);
 	}
 }
@@ -1167,7 +1181,7 @@ static void vgacon_complement_pointer_pos(struct vc_data *vc, int offset)
 /* Used by selection. Hence it uses the visible area. */
 static u16 vgacon_screen_glyph(const struct vc_data *vc, int ypos, int xpos)
 {
-	return scr_readw(vga_visible_origin + ypos * vc->vc_cols + xpos);
+	return scr_read(vga_visible_origin + ypos * vc->vc_cols + xpos);
 }
 
 static void vgacon_clear(struct vc_data *vc, int ypos, int xpos, int height,
@@ -1176,7 +1190,7 @@ static void vgacon_clear(struct vc_data *vc, int ypos, int xpos, int height,
 	u16 *p = vga_origin + ypos * vc->vc_cols + xpos;
 
 	while (height--) {
-		scr_memsetw(p, BLANK, width * sizeof(u16));
+		scr_memset(p, BLANK, width);
 		p += vc->vc_cols;
 	}
 }
@@ -1186,7 +1200,7 @@ static void vgacon_putc(struct vc_data *vc, struct vc_cell c, int ypos, int xpos
 	u16 w = c.celldata;
 
 	u16 *p = vga_origin + ypos * vc->vc_cols + xpos;
-	scr_writew(w, p);
+	scr_write(w, p);
 }
 
 static void vgacon_putcs(struct vc_data *vc, const struct vc_cell *s,

@@ -12,7 +12,6 @@
 #define _VIDEO_FBCON_H
 
 #include <linux/types.h>
-#include <linux/vt_buffer.h>
 #include <linux/vt_kern.h>
 #include <linux/workqueue.h>
 
