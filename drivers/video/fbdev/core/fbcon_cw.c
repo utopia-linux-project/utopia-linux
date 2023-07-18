@@ -18,27 +18,6 @@
 #include "fbcon.h"
 #include "fbcon_rotate.h"
 
-static inline u16 readcell(const struct vc_cell* p)
-{
-	return p->celldata;
-}
-
-static inline void writecell(u16 a, struct vc_cell *p)
-{
-	p->celldata = a;
-}
-
-static inline void cellset(struct vc_cell *p, struct vc_cell a, size_t count)
-{
-	while (count--) {
-		*p++ = a;
-	}
-}
-
-static inline void cellmove(struct vc_cell *dest, const struct vc_cell *src, size_t count)
-{
-	memcpy(dest, src, count * sizeof(struct vc_cell));
-}
 
 /*
  * Rotation 90 degrees
@@ -89,10 +68,9 @@ static void cw_clear(struct vc_data *vc, struct fb_info *info, int sy,
 {
 	struct fbcon_ops *ops = info->fbcon_par;
 	struct fb_fillrect region;
-	int bgshift = 12;
 	u32 vxres = GETVXRES(ops->p, info);
 
-	region.color = attr_bgcol_ec(bgshift,vc,info);
+	region.color = attr_bgcol_ec(vc,info);
 	region.dx = vxres - ((sy + height) * vc->vc_font.height);
 	region.dy = sx *  vc->vc_font.width;
 	region.height = width * vc->vc_font.width;
@@ -108,12 +86,11 @@ static inline void cw_putcs_aligned(struct vc_data *vc, struct fb_info *info,
 				    struct fb_image *image, u8 *buf, u8 *dst)
 {
 	struct fbcon_ops *ops = info->fbcon_par;
-	u16 charmask = 0xff;
 	u32 idx = (vc->vc_font.height + 7) >> 3;
 	u8 *src;
 
 	while (cnt--) {
-		src = ops->fontbuffer + (readcell(s++) & charmask)*cellsize;
+		src = ops->fontbuffer + ((s++)->glyph)*cellsize;
 
 		if (attr) {
 			cw_update_attr(buf, src, attr, vc);
@@ -145,7 +122,7 @@ static void cw_putcs(struct vc_data *vc, struct fb_info *info,
 	u32 scan_align = info->pixmap.scan_align - 1;
 	u32 buf_align = info->pixmap.buf_align - 1;
 	u32 cnt, pitch, size;
-	u32 attribute = get_attribute(info, readcell(s));
+	u32 attribute = get_attribute(info, *s);
 	u8 *dst, *buf = NULL;
 	u32 vxres = GETVXRES(ops->p, info);
 
@@ -228,8 +205,8 @@ static void cw_cursor(struct vc_data *vc, struct fb_info *info, int mode,
 {
 	struct fb_cursor cursor;
 	struct fbcon_ops *ops = info->fbcon_par;
-	unsigned short charmask = 0xff;
-	int w = (vc->vc_font.height + 7) >> 3, c;
+	int w = (vc->vc_font.height + 7) >> 3;
+	struct vc_cell c;
 	int y = real_y(ops->p, vc->state.y);
 	int attribute, use_sw = vc->vc_cursor_type & CUR_SW;
 	int err = 1, dx, dy;
@@ -241,9 +218,9 @@ static void cw_cursor(struct vc_data *vc, struct fb_info *info, int mode,
 
 	cursor.set = 0;
 
-	c = readcell(vc->vc_pos);
+	c = *vc->vc_pos;
 	attribute = get_attribute(info, c);
-	src = ops->fontbuffer + ((c & charmask) * (w * vc->vc_font.width));
+	src = ops->fontbuffer + (c.glyph * (w * vc->vc_font.width));
 
 	if (ops->cursor_state.image.data != src ||
 	    ops->cursor_reset) {

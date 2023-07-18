@@ -90,22 +90,22 @@ struct fbcon_ops {
      *  Attribute Decoding
      */
 
-/* Color */
-#define attr_fgcol(fgshift,s)    \
-	(((s) >> (fgshift)) & 0x0f)
-#define attr_bgcol(bgshift,s)    \
-	(((s) >> (bgshift)) & 0x0f)
-
-/* Monochrome */
-#define attr_bold(s) \
-	((s) & 0x200)
-#define attr_reverse(s) \
-	((s) & 0x800)
-#define attr_underline(s) \
-	((s) & 0x400)
-#define attr_blink(s) \
-	((s) & 0x8000)
-	
+static inline bool attr_bold(struct vc_cell cell)
+{
+	return cell.attr.intensity == VCI_BOLD;
+}
+static inline bool attr_reverse(struct vc_cell cell)
+{
+	return cell.attr.reverse;
+}
+static inline bool attr_underline(struct vc_cell cell)
+{
+	return cell.attr.underline;
+}
+static inline bool attr_blink(struct vc_cell cell)
+{
+	return cell.attr.blink;
+}
 
 static inline int mono_col(const struct fb_info *info)
 {
@@ -115,7 +115,17 @@ static inline int mono_col(const struct fb_info *info)
 	return (~(0xfff << max_len)) & 0xff;
 }
 
-static inline int attr_col_ec(int shift, struct vc_data *vc,
+static inline u8 fg_color(struct vc_cell cell)
+{
+	return cell.attr.fg_color | (cell.attr.intensity == VCI_BOLD ? 0x08 : 0x00);
+}
+
+static inline u8 bg_color(struct vc_cell cell)
+{
+	return cell.attr.bg_color;
+}
+
+static inline int attr_col_ec(struct vc_data *vc,
 			      struct fb_info *info, int is_fg)
 {
 	int is_mono01;
@@ -127,8 +137,7 @@ static inline int attr_col_ec(int shift, struct vc_data *vc,
 		return 0;
 
 	if (vc->vc_can_do_color)
-		return is_fg ? attr_fgcol(shift,vc->vc_video_erase.celldata)
-			: attr_bgcol(shift,vc->vc_video_erase.celldata);
+		return is_fg ? fg_color(vc->vc_video_erase) : bg_color(vc->vc_video_erase);
 
 	if (!info)
 		return 0;
@@ -136,7 +145,7 @@ static inline int attr_col_ec(int shift, struct vc_data *vc,
 	col = mono_col(info);
 	is_mono01 = info->fix.visual == FB_VISUAL_MONO01;
 
-	if (attr_reverse(vc->vc_video_erase.celldata)) {
+	if (attr_reverse(vc->vc_video_erase)) {
 		fg = is_mono01 ? col : 0;
 		bg = is_mono01 ? 0 : col;
 	}
@@ -148,8 +157,8 @@ static inline int attr_col_ec(int shift, struct vc_data *vc,
 	return is_fg ? fg : bg;
 }
 
-#define attr_bgcol_ec(bgshift, vc, info) attr_col_ec(bgshift, vc, info, 0)
-#define attr_fgcol_ec(fgshift, vc, info) attr_col_ec(fgshift, vc, info, 1)
+#define attr_bgcol_ec(vc, info) attr_col_ec(vc, info, 0)
+#define attr_fgcol_ec(vc, info) attr_col_ec(vc, info, 1)
 
     /*
      *  Scroll Method
@@ -237,7 +246,7 @@ static inline int real_y(struct fbcon_display *p, int ypos)
 }
 
 
-static inline int get_attribute(struct fb_info *info, u16 c)
+static inline int get_attribute(struct fb_info *info, struct vc_cell c)
 {
 	int attribute = 0;
 

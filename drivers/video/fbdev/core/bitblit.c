@@ -19,11 +19,6 @@
 #include <asm/types.h>
 #include "fbcon.h"
 
-static inline u16 readcell(const struct vc_cell* p)
-{
-	return p->celldata;
-}
-
 /*
  * Accelerated handlers.
  */
@@ -66,10 +61,9 @@ static void bit_bmove(struct vc_data *vc, struct fb_info *info, int sy,
 static void bit_clear(struct vc_data *vc, struct fb_info *info, int sy,
 		      int sx, int height, int width)
 {
-	int bgshift = 12;
 	struct fb_fillrect region;
 
-	region.color = attr_bgcol_ec(bgshift, vc, info);
+	region.color = attr_bgcol_ec(vc, info);
 	region.dx = sx * vc->vc_font.width;
 	region.dy = sy * vc->vc_font.height;
 	region.width = width * vc->vc_font.width;
@@ -84,13 +78,11 @@ static inline void bit_putcs_aligned(struct vc_data *vc, struct fb_info *info,
 				     u32 d_pitch, u32 s_pitch, u32 cellsize,
 				     struct fb_image *image, u8 *buf, u8 *dst)
 {
-	u16 charmask = 0xff;
 	u32 idx = vc->vc_font.width >> 3;
 	u8 *src;
 
 	while (cnt--) {
-		src = vc->vc_font.data + (readcell(s++)&
-					  charmask)*cellsize;
+		src = vc->vc_font.data + ((s++)->glyph) * cellsize;
 
 		if (attr) {
 			update_attr(buf, src, attr, vc);
@@ -117,15 +109,13 @@ static inline void bit_putcs_unaligned(struct vc_data *vc,
 				       struct fb_image *image, u8 *buf,
 				       u8 *dst)
 {
-	u16 charmask = 0xff;
 	u32 shift_low = 0, mod = vc->vc_font.width % 8;
 	u32 shift_high = 8;
 	u32 idx = vc->vc_font.width >> 3;
 	u8 *src;
 
 	while (cnt--) {
-		src = vc->vc_font.data + (readcell(s++)&
-					  charmask)*cellsize;
+		src = vc->vc_font.data + (s++)->glyph * cellsize;
 
 		if (attr) {
 			update_attr(buf, src, attr, vc);
@@ -156,7 +146,7 @@ static void bit_putcs(struct vc_data *vc, struct fb_info *info,
 	u32 scan_align = info->pixmap.scan_align - 1;
 	u32 buf_align = info->pixmap.buf_align - 1;
 	u32 mod = vc->vc_font.width % 8, cnt, pitch, size;
-	u32 attribute = get_attribute(info, readcell(s));
+	u32 attribute = get_attribute(info, *s);
 	u8 *dst, *buf = NULL;
 
 	image.fg_color = fg;
@@ -243,8 +233,8 @@ static void bit_cursor(struct vc_data *vc, struct fb_info *info, int mode,
 {
 	struct fb_cursor cursor;
 	struct fbcon_ops *ops = info->fbcon_par;
-	unsigned short charmask = 0xff;
-	int w = DIV_ROUND_UP(vc->vc_font.width, 8), c;
+	int w = DIV_ROUND_UP(vc->vc_font.width, 8);
+	struct vc_cell c;
 	int y = real_y(ops->p, vc->state.y);
 	int attribute, use_sw = vc->vc_cursor_type & CUR_SW;
 	int err = 1;
@@ -252,9 +242,9 @@ static void bit_cursor(struct vc_data *vc, struct fb_info *info, int mode,
 
 	cursor.set = 0;
 
-	c = readcell(vc->vc_pos);
+	c = *vc->vc_pos;
 	attribute = get_attribute(info, c);
-	src = vc->vc_font.data + ((c & charmask) * (w * vc->vc_font.height));
+	src = vc->vc_font.data + (c.glyph * (w * vc->vc_font.height));
 
 	if (ops->cursor_state.image.data != src ||
 	    ops->cursor_reset) {

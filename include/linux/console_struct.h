@@ -27,35 +27,42 @@ enum vc_intensity {
 	VCI_MASK = 0x3,
 };
 
+struct vc_cell_attr {
+	unsigned fg_color : 3;
+	unsigned bg_color : 3;
+
+	unsigned intensity : 2;
+
+	bool	italic : 1;
+	bool	underline : 1;
+	bool	blink : 1;
+	bool	reverse : 1;
+
+	bool	pointer_pos : 1;	/* pointer position for selection */
+	bool	selected : 1;		/* selected text */
+};
+
+struct vc_cell {
+	union {
+		struct vc_cell_attr attr;
+		u16 attr_word;
+	};
+
+	u8 glyph;
+};
+
 /**
  * struct vc_state -- state of a VC
  * @x: cursor's x-position
  * @y: cursor's y-position
- * @color: foreground & background colors
- * @charset: what character set to use (0=G0 or 1=G1)
- * @intensity: see enum vc_intensity for values
- * @reverse: reversed foreground/background colors
  *
  * These members are defined separately from struct vc_data as we save &
  * restore them at times.
  */
 struct vc_state {
 	unsigned int	x, y;
-
-	unsigned char	color;
-
-	unsigned int	charset		: 1;
-
-	/* attribute flags */
-	enum vc_intensity intensity;
-	bool		italic;
-	bool		underline;
-	bool		blink;
-	bool		reverse;
-};
-
-struct vc_cell {
-	u16 celldata;
+	struct vc_cell_attr attr;
+	bool		charset;
 };
 
 /*
@@ -106,15 +113,14 @@ struct vc_data {
 	unsigned int	vc_screen_size;
 	unsigned char	vc_mode;		/* KD_TEXT, ... */
 	/* attributes for all characters on screen */
-	unsigned char	vc_attr;		/* Current attributes */
-	unsigned char	vc_def_color;		/* Default colors */
-	unsigned char	vc_ulcolor;		/* Color for underline mode */
-	unsigned char   vc_itcolor;
-	unsigned char	vc_halfcolor;		/* Color for half intensity mode */
+	struct vc_cell_attr vc_attr;		/* Current attributes */
+	unsigned char	vc_def_fg_color;	/* Default foreground color */
+	unsigned char	vc_def_bg_color;	/* Default foreground color */
+	unsigned char	vc_ulcolor;		/* Foreground color for underline mode */
+	unsigned char   vc_itcolor;		/* Foreground color for italic mode */
+	unsigned char	vc_halfcolor;		/* Foreground color for half intensity mode */
 	/* cursor */
 	unsigned int	vc_cursor_type;
-	unsigned short	vc_complement_mask;	/* [#] Xor mask for mouse pointer */
-	unsigned short	vc_s_complement_mask;	/* Saved mouse pointer mask */
 	struct vc_cell	*vc_pos;		/* Cursor address */
 	/* fonts */	
 	struct console_font vc_font;		/* Current VC font set */

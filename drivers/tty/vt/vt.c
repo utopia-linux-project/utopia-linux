@@ -252,14 +252,11 @@ static inline void cellset(struct vc_cell *dest, struct vc_cell cell, size_t cou
 	}
 }
 
-static inline u16 readcell(const struct vc_cell *p)
+static inline void writecell(struct vc_cell *p, u16 glyph,
+		struct vc_cell_attr attr)
 {
-	return p->celldata;
-}
-
-static inline void writecell(u16 celldata, struct vc_cell *p)
-{
-	p->celldata = celldata;
+	p->glyph = glyph;
+	p->attr = attr;
 }
 
 /*
@@ -362,16 +359,16 @@ static void do_update_region(struct vc_data *vc, struct vc_cell *start, int coun
 	yy = offset / vc->vc_cols;
 
 	for(;;) {
-		u16 attrib = readcell(p) & 0xff00;
+		u16 attrib = p->attr_word;
 		int startx = xx;
 		struct vc_cell *q = p;
 		while (xx < vc->vc_cols && count) {
-			if (attrib != (readcell(p) & 0xff00)) {
+			if (attrib != p->attr_word) {
 				if (p > q)
 					vc->vc_sw->con_putcs(vc, q, p-q, yy, startx);
 				startx = xx;
 				q = p;
-				attrib = readcell(p) & 0xff00;
+				attrib = p->attr_word;
 			}
 			p++;
 			xx++;
@@ -397,58 +394,19 @@ void update_region(struct vc_data *vc, struct vc_cell *start, int count)
 	}
 }
 
-/* Structure of attributes is hardware-dependent */
-
-static u8 build_attr(struct vc_data *vc, u8 _color,
-		enum vc_intensity _intensity, bool _blink, bool _underline,
-		bool _reverse, bool _italic)
-{
-	if (vc->vc_sw->con_build_attr)
-		return vc->vc_sw->con_build_attr(vc, _color, _intensity,
-		       _blink, _underline, _reverse, _italic);
-
-/*
- * ++roman: I completely changed the attribute format for monochrome
- * mode (!can_do_color). The formerly used MDA (monochrome display
- * adapter) format didn't allow the combination of certain effects.
- * Now the attribute is just a bit vector:
- *  Bit 0..1: intensity (0..2)
- *  Bit 2   : underline
- *  Bit 3   : reverse
- *  Bit 7   : blink
- */
-	{
-	u8 a = _color;
-	if (!vc->vc_can_do_color)
-		return _intensity |
-		       (_italic    << 1) |
-		       (_underline << 2) |
-		       (_reverse   << 3) |
-		       (_blink     << 7);
-	if (_italic)
-		a = (a & 0xF0) | vc->vc_itcolor;
-	else if (_underline)
-		a = (a & 0xf0) | vc->vc_ulcolor;
-	else if (_intensity == VCI_HALF_BRIGHT)
-		a = (a & 0xf0) | vc->vc_halfcolor;
-	if (_reverse)
-		a = (a & 0x88) | (((a >> 4) | (a << 4)) & 0x77);
-	if (_blink)
-		a ^= 0x80;
-	if (_intensity == VCI_BOLD)
-		a ^= 0x08;
-	return a;
-	}
-}
-
 static void update_attr(struct vc_data *vc)
 {
-	vc->vc_attr = build_attr(vc, vc->state.color, vc->state.intensity,
-	              vc->state.blink, vc->state.underline,
-	              vc->state.reverse ^ vc->vc_decscnm, vc->state.italic);
-	vc->vc_video_erase.celldata = ' ' | (build_attr(vc, vc->state.color,
-				VCI_NORMAL, vc->state.blink, false,
-				vc->vc_decscnm, false) << 8);
+	vc->vc_attr = vc->state.attr;
+	vc->vc_attr.reverse ^= vc->vc_decscnm;
+
+	vc->vc_video_erase.glyph = ' ';
+	vc->vc_video_erase.attr.fg_color = vc->state.attr.fg_color;
+	vc->vc_video_erase.attr.bg_color = vc->state.attr.bg_color;
+	vc->vc_video_erase.attr.intensity = VCI_NORMAL;
+	vc->vc_video_erase.attr.blink = vc->state.attr.blink;
+	vc->vc_video_erase.attr.underline = false;
+	vc->vc_video_erase.attr.reverse = vc->vc_decscnm;
+	vc->vc_video_erase.attr.italic = false;
 }
 
 /* Note: inverting the screen twice should revert to the original state */
@@ -464,24 +422,10 @@ void invert_selection(struct vc_data *vc, int offset, int count)
 	} else {
 		struct vc_cell *q = p;
 		int cnt = count;
-		u16 a;
 
-		if (!vc->vc_can_do_color) {
-			while (cnt--) {
-			    a = readcell(q);
-			    a ^= 0x0800;
-			    writecell(a, q);
-			    q++;
-			}
-		} else {
-			while (cnt--) {
-				a = readcell(q);
-				a = (a & 0x88ff) |
-				   ((a & 0x7000) >> 4) |
-				   ((a & 0x0700) << 4);
-				writecell(a, q);
-				q++;
-			}
+		while (cnt--) {
+			q->attr.selected = !q->attr.selected;
+			q++;
 		}
 	}
 
@@ -508,7 +452,7 @@ void complement_pointer_pos(struct vc_data *vc, int offset)
 
 	if (old_offset != -1 && old_offset >= 0 &&
 	    old_offset < vc->vc_screen_size) {
-		writecell(old.celldata, screenpos(vc, old_offset));
+		writecell(screenpos(vc, old_offset), old.glyph, old.attr);
 		if (con_should_update(vc))
 			vc->vc_sw->con_putc(vc, old, oldy, oldx);
 		notify_update(vc);
@@ -518,16 +462,14 @@ void complement_pointer_pos(struct vc_data *vc, int offset)
 
 	if (offset != -1 && offset >= 0 &&
 	    offset < vc->vc_screen_size) {
-		struct vc_cell new;
 		struct vc_cell *p;
 		p = screenpos(vc, offset);
-		old.celldata = readcell(p);
-		new.celldata = old.celldata ^ vc->vc_complement_mask;
-		writecell(new.celldata, p);
+		old = *p;
+		p->attr.pointer_pos = true;
 		if (con_should_update(vc)) {
 			oldx = offset % vc->vc_cols;
 			oldy = offset / vc->vc_cols;
-			vc->vc_sw->con_putc(vc, new, oldy, oldx);
+			vc->vc_sw->con_putc(vc, *p, oldy, oldx);
 		}
 		notify_update(vc);
 	}
@@ -619,10 +561,9 @@ void clear_buffer_attributes(struct vc_data *vc)
 {
 	struct vc_cell *p = vc->vc_screenbuf;
 	int count = vc->vc_screen_size;
-	int mask = 0xff;
 
 	for (; count > 0; count--, p++) {
-		writecell((readcell(p) & mask) | (vc->vc_video_erase.celldata & ~mask), p);
+		p->attr = vc->vc_video_erase.attr;
 	}
 	// TODO: This needs to be followed by updating the screen.
 }
@@ -708,13 +649,9 @@ static void visual_init(struct vc_data *vc, int num, int init)
 	__module_get(vc->vc_sw->owner);
 	vc->vc_num = num;
 	vc->vc_display_fg = &master_display_fg;
-	vc->vc_complement_mask = 0;
 	vc->vc_can_do_color = 0;
 	vc->vc_cur_blink_ms = DEFAULT_CURSOR_BLINK_MS;
 	vc->vc_sw->con_init(vc, init);
-	if (!vc->vc_complement_mask)
-		vc->vc_complement_mask = vc->vc_can_do_color ? 0x7700 : 0x0800;
-	vc->vc_s_complement_mask = vc->vc_complement_mask;
 	vc->vc_screen_size = vc->vc_rows * vc->vc_cols;
 }
 
@@ -1280,12 +1217,13 @@ static void csi_X(struct vc_data *vc, unsigned int vpar)
 
 static void default_attr(struct vc_data *vc)
 {
-	vc->state.intensity = VCI_NORMAL;
-	vc->state.italic = false;
-	vc->state.underline = false;
-	vc->state.reverse = false;
-	vc->state.blink = false;
-	vc->state.color = vc->vc_def_color;
+	vc->state.attr.intensity = VCI_NORMAL;
+	vc->state.attr.italic = false;
+	vc->state.attr.underline = false;
+	vc->state.attr.reverse = false;
+	vc->state.attr.blink = false;
+	vc->state.attr.fg_color = vc->vc_def_fg_color;
+	vc->state.attr.bg_color = vc->vc_def_bg_color;
 }
 
 struct rgb { u8 r; u8 g; u8 b; };
@@ -1321,20 +1259,20 @@ static void rgb_foreground(struct vc_data *vc, const struct rgb *c)
 
 	if (hue == 7 && max <= 0x55) {
 		hue = 0;
-		vc->state.intensity = VCI_BOLD;
+		vc->state.attr.intensity = VCI_BOLD;
 	} else if (max > 0xaa)
-		vc->state.intensity = VCI_BOLD;
+		vc->state.attr.intensity = VCI_BOLD;
 	else
-		vc->state.intensity = VCI_NORMAL;
+		vc->state.attr.intensity = VCI_NORMAL;
 
-	vc->state.color = (vc->state.color & 0xf0) | hue;
+	vc->state.attr.fg_color = hue;
 }
 
 static void rgb_background(struct vc_data *vc, const struct rgb *c)
 {
 	/* For backgrounds, err on the dark side. */
-	vc->state.color = (vc->state.color & 0x0f)
-		| (c->r&0x80) >> 1 | (c->g&0x80) >> 2 | (c->b&0x80) >> 3;
+	vc->state.attr.bg_color =
+		(c->r&0x80) >> 1 | (c->g&0x80) >> 2 | (c->b&0x80) >> 3;
 }
 
 /*
@@ -1384,13 +1322,13 @@ static void csi_m(struct vc_data *vc)
 			default_attr(vc);
 			break;
 		case 1:
-			vc->state.intensity = VCI_BOLD;
+			vc->state.attr.intensity = VCI_BOLD;
 			break;
 		case 2:
-			vc->state.intensity = VCI_HALF_BRIGHT;
+			vc->state.attr.intensity = VCI_HALF_BRIGHT;
 			break;
 		case 3:
-			vc->state.italic = true;
+			vc->state.attr.italic = true;
 			break;
 		case 21:
 			/*
@@ -1398,31 +1336,31 @@ static void csi_m(struct vc_data *vc)
 			 * convert it to a single underline.
 			 */
 		case 4:
-			vc->state.underline = true;
+			vc->state.attr.underline = true;
 			break;
 		case 5:
-			vc->state.blink = true;
+			vc->state.attr.blink = true;
 			break;
 		case 7:
-			vc->state.reverse = true;
+			vc->state.attr.reverse = true;
 			break;
 		case 10: case 12: case 11:
 			/* functionality removed */
 			break;
 		case 22:
-			vc->state.intensity = VCI_NORMAL;
+			vc->state.attr.intensity = VCI_NORMAL;
 			break;
 		case 23:
-			vc->state.italic = false;
+			vc->state.attr.italic = false;
 			break;
 		case 24:
-			vc->state.underline = false;
+			vc->state.attr.underline = false;
 			break;
 		case 25:
-			vc->state.blink = false;
+			vc->state.attr.blink = false;
 			break;
 		case 27:
-			vc->state.reverse = false;
+			vc->state.attr.reverse = false;
 			break;
 		case 38:
 			i = vc_t416_color(vc, i, rgb_foreground);
@@ -1431,25 +1369,25 @@ static void csi_m(struct vc_data *vc)
 			i = vc_t416_color(vc, i, rgb_background);
 			break;
 		case 39:
-			vc->state.color = (vc->vc_def_color & 0x0f) |
-				(vc->state.color & 0xf0);
+			vc->state.attr.fg_color = vc->vc_def_fg_color;
 			break;
 		case 49:
-			vc->state.color = (vc->vc_def_color & 0xf0) |
-				(vc->state.color & 0x0f);
+			vc->state.attr.bg_color = vc->vc_def_bg_color;
 			break;
 		default:
 			if (vc->vc_par[i] >= 90 && vc->vc_par[i] <= 107) {
 				if (vc->vc_par[i] < 100)
-					vc->state.intensity = VCI_BOLD;
+					vc->state.attr.intensity = VCI_BOLD;
 				vc->vc_par[i] -= 60;
 			}
-			if (vc->vc_par[i] >= 30 && vc->vc_par[i] <= 37)
-				vc->state.color = color_table[vc->vc_par[i] - 30]
-					| (vc->state.color & 0xf0);
+			if (vc->vc_par[i] >= 30 && vc->vc_par[i] <= 37) {
+				u8 color = color_table[vc->vc_par[i] - 30];
+				vc->state.attr.fg_color = color & 0x07;
+				if (color & 0x08)
+					vc->state.attr.intensity = VCI_BOLD;
+			}
 			else if (vc->vc_par[i] >= 40 && vc->vc_par[i] <= 47)
-				vc->state.color = (color_table[vc->vc_par[i] - 40] << 4)
-					| (vc->state.color & 0x0f);
+				vc->state.attr.bg_color = color_table[vc->vc_par[i] - 40];
 			break;
 		}
 	update_attr(vc);
@@ -1577,19 +1515,20 @@ static void setterm_command(struct vc_data *vc)
 	case 1:	/* set color for underline mode */
 		if (vc->vc_can_do_color && vc->vc_par[1] < 16) {
 			vc->vc_ulcolor = color_table[vc->vc_par[1]];
-			if (vc->state.underline)
+			if (vc->state.attr.underline)
 				update_attr(vc);
 		}
 		break;
 	case 2:	/* set color for half intensity mode */
 		if (vc->vc_can_do_color && vc->vc_par[1] < 16) {
 			vc->vc_halfcolor = color_table[vc->vc_par[1]];
-			if (vc->state.intensity == VCI_HALF_BRIGHT)
+			if (vc->state.attr.intensity == VCI_HALF_BRIGHT)
 				update_attr(vc);
 		}
 		break;
 	case 8:	/* store colors as defaults */
-		vc->vc_def_color = vc->vc_attr;
+		vc->vc_def_fg_color = vc->vc_attr.fg_color;
+		vc->vc_def_bg_color = vc->vc_attr.bg_color;
 		default_attr(vc);
 		update_attr(vc);
 		break;
@@ -1719,7 +1658,6 @@ static void reset_terminal(struct vc_data *vc, int do_clear)
 	vt_reset_keyboard(vc->vc_num);
 
 	vc->vc_cursor_type = cur_default;
-	vc->vc_complement_mask = vc->vc_s_complement_mask;
 
 	default_attr(vc);
 	update_attr(vc);
@@ -1966,10 +1904,7 @@ static void do_con_trol(struct tty_struct *tty, struct vc_data *vc, int c)
 		case 'm':
 			if (vc->vc_priv == EPdec) {
 				clear_selection();
-				if (vc->vc_par[0])
-					vc->vc_complement_mask = vc->vc_par[0] << 8 | vc->vc_par[1];
-				else
-					vc->vc_complement_mask = vc->vc_s_complement_mask;
+				/* functionality removed */
 				return;
 			}
 			break;
@@ -2122,11 +2057,9 @@ static void do_con_trol(struct tty_struct *tty, struct vc_data *vc, int c)
 		vc->vc_state = ESnormal;
 		if (c == '8') {
 			/* DEC screen alignment test. kludge :-) */
-			vc->vc_video_erase.celldata =
-				(vc->vc_video_erase.celldata & 0xff00) | 'E';
+			vc->vc_video_erase.glyph = 'E';
 			csi_J(vc, 2);
-			vc->vc_video_erase.celldata =
-				(vc->vc_video_erase.celldata & 0xff00) | ' ';
+			vc->vc_video_erase.glyph = ' ';
 			do_update_region(vc, vc->vc_screenbuf, vc->vc_screen_size);
 		}
 		return;
@@ -2313,16 +2246,6 @@ static int vc_translate(struct vc_data *vc, unsigned char c, bool *rescan)
 	return c;
 }
 
-static inline unsigned char vc_invert_attr(const struct vc_data *vc)
-{
-	if (!vc->vc_can_do_color)
-		return vc->vc_attr ^ 0x08;
-
-	return   (vc->vc_attr & 0x88) |
-		((vc->vc_attr & 0x70) >> 4) |
-		((vc->vc_attr & 0x07) << 4);
-}
-
 static bool vc_is_control(struct vc_data *vc, int c)
 {
 	/*
@@ -2362,7 +2285,7 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 		struct vc_draw_region *draw)
 {
 	int next_c;
-	unsigned char vc_attr = vc->vc_attr;
+	struct vc_cell_attr vc_attr = vc->vc_attr;
 	u16 charmask = 0xff;
 	u8 width = 1;
 	bool inverse = false;
@@ -2404,7 +2327,7 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 				width = 2;
 				next_c = '=';
 
-				vc_attr = vc_invert_attr(vc);
+				vc_attr.reverse ^= true;
 				con_flush(vc, draw);
 			}
 
@@ -2412,7 +2335,7 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 			inverse = true;
 			tc = '?';
 
-			vc_attr = vc_invert_attr(vc);
+			vc_attr.reverse ^= true;
 			con_flush(vc, draw);
 		}
 	}
@@ -2427,9 +2350,7 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 		if (vc->vc_decim)
 			insert_char(vc, 1);
 
-		tc |= (vc_attr << 8);
-
-		writecell(tc, vc->vc_pos);
+		writecell(vc->vc_pos, tc, vc_attr);
 
 		if (con_should_update(vc) && draw->x < 0) {
 			draw->x = vc->state.x;
@@ -2696,7 +2617,7 @@ static void vt_console_print(struct console *co, const char *b, unsigned count)
 			if (c == 10 || c == 13)
 				continue;
 		}
-		writecell((vc->vc_attr << 8) + c, vc->vc_pos);
+		writecell(vc->vc_pos, c, vc->vc_attr);
 		notify_write(vc, c);
 		cnt++;
 		if (vc->state.x == vc->vc_cols - 1) {
@@ -3011,7 +2932,7 @@ static void con_cleanup(struct tty_struct *tty)
 	tty_port_put(&vc->port);
 }
 
-static int default_color           = 7; /* white */
+static int default_color           = 7; /* white on black */
 static int default_italic_color    = 2; // green (ASCII)
 static int default_underline_color = 3; // cyan (ASCII)
 module_param_named(color, default_color, int, S_IRUGO | S_IWUSR);
@@ -3035,7 +2956,8 @@ static void vc_init(struct vc_data *vc, unsigned int rows,
 		vc->vc_palette[k++] = default_grn[j] ;
 		vc->vc_palette[k++] = default_blu[j] ;
 	}
-	vc->vc_def_color       = default_color;
+	vc->vc_def_fg_color    = default_color & 0x07;
+	vc->vc_def_bg_color    = (default_color >> 4) & 0x07;
 	vc->vc_ulcolor         = default_underline_color;
 	vc->vc_itcolor         = default_italic_color;
 	vc->vc_halfcolor       = 0x08;   /* grey */
@@ -4309,18 +4231,13 @@ int con_font_op(struct vc_data *vc, struct console_font_op *op)
 /* used by selection */
 u16 screen_glyph(const struct vc_data *vc, int offset)
 {
-	u16 w, c;
-
 	if (vc->vc_sw->con_screen_glyph) {
 		int y = offset / vc->vc_cols;
 		int x = offset % vc->vc_cols;
 		return vc->vc_sw->con_screen_glyph(vc, y, x);
 	}
 
-	w = readcell(screenpos(vc, offset));
-	c = w & 0xff;
-
-	return c;
+	return (vc->vc_screenbuf + offset)->glyph;
 }
 EXPORT_SYMBOL_GPL(screen_glyph);
 
@@ -4347,12 +4264,12 @@ void putconsxy(struct vc_data *vc, unsigned char xy[static const 2])
 
 u16 vcs_readcell(const struct vc_data *vc, const struct vc_cell *org)
 {
-	return readcell(org);
+	return org->glyph;
 }
 
 void vcs_writecell(struct vc_data *vc, u16 val, struct vc_cell *org)
 {
-	writecell(val, org);
+	org->glyph = (u8)val;
 }
 
 void vcs_scr_updated(struct vc_data *vc)

@@ -87,7 +87,7 @@ static u16		vga_video_port_reg	__read_mostly;	/* Video register select port */
 static u16		vga_video_port_val	__read_mostly;	/* Video register value port */
 static unsigned int	vga_video_num_columns;			/* Number of text columns */
 static unsigned int	vga_video_num_lines;			/* Number of text lines */
-static bool		vga_can_do_color;			/* Do we support colors? */
+static bool		vga_can_do_color	__read_mostly;	/* Do we support colors? */
 static unsigned int	vga_default_font_height __read_mostly;	/* Height of default screen font */
 static unsigned char	vga_video_type		__read_mostly;	/* Card type */
 static int		vga_vesa_blanked;
@@ -422,8 +422,6 @@ static void vgacon_init(struct vc_data *c, int init)
 	} else
 		vc_resize(c, vga_video_num_columns, vga_video_num_lines);
 
-	c->vc_complement_mask = 0x7700;
-
 	/* Only set the default if the user didn't deliberately override it */
 	if (global_cursor_default == -1)
 		global_cursor_default =
@@ -439,38 +437,55 @@ static void vgacon_deinit(struct vc_data *c)
 	}
 }
 
-static u8 vgacon_build_attr(struct vc_data *c, u8 color,
-			    enum vc_intensity intensity,
-			    bool blink, bool underline, bool reverse,
-			    bool italic)
+static u8 vgacon_build_attr(struct vc_data *c, struct vc_cell_attr a)
 {
-	u8 attr = color;
+	u8 attr = 0;
+
+	bool invert = a.reverse ^ a.selected;
 
 	if (vga_can_do_color) {
-		if (italic)
-			attr = (attr & 0xF0) | c->vc_itcolor;
-		else if (underline)
+		/* CGA / EGA / VGA */
+		attr = a.fg_color | (a.bg_color << 4);
+
+		if (a.italic)
+			attr = (attr & 0xf0) | c->vc_itcolor;
+		else if (a.underline)
 			attr = (attr & 0xf0) | c->vc_ulcolor;
-		else if (intensity == VCI_HALF_BRIGHT)
+		else if (a.intensity == VCI_HALF_BRIGHT)
 			attr = (attr & 0xf0) | c->vc_halfcolor;
-	}
-	if (reverse)
-		attr =
-		    ((attr) & 0x88) | ((((attr) >> 4) | ((attr) << 4)) &
-				       0x77);
-	if (blink)
-		attr ^= 0x80;
-	if (intensity == VCI_BOLD)
-		attr ^= 0x08;
-	if (!vga_can_do_color) {
-		if (italic)
-			attr = (attr & 0xF8) | 0x02;
-		else if (underline)
-			attr = (attr & 0xf8) | 0x01;
-		else if (intensity == VCI_HALF_BRIGHT)
-			attr = (attr & 0xf0) | 0x08;
+
+		if (a.pointer_pos) {
+			attr ^= 0x77;
+		}
+
+		if (invert)
+			attr =
+			    ((attr) & 0x88) | ((((attr) >> 4) | ((attr) << 4)) &
+					       0x77);
+		if (a.blink)
+			attr |= 0x80;
+		if (a.intensity == VCI_BOLD)
+			attr |= 0x08;
+	} else {
+		/*
+		 * MDA. Note that MDA's reverse mode cannot be combined with
+		 * underline. If you set them both, underline takes precedence.
+		 */
+		attr = (invert) ? 0x70 :			/* reverse */
+			(a.italic || a.underline) ? 0x01 :	/* underline */
+			0x07;					/* normal */
+
+		if (a.blink || a.pointer_pos)
+			attr |= 0x80;	/* blink */
+		if (a.intensity == VCI_BOLD)
+			attr |= 0x08;	/* bright */
 	}
 	return attr;
+}
+
+static u16 to_u16(struct vc_data *vc, struct vc_cell c)
+{
+	return (u16) vgacon_build_attr(vc, c.attr) << 8 | c.glyph;
 }
 
 /* Used by selection. Hence it uses the visible region. */
@@ -1113,7 +1128,7 @@ static bool vgacon_scroll(struct vc_data *c, unsigned int t, unsigned int b,
 	if (!vga_hardscroll_enabled || lines >= c->vc_rows / 2)
 		return false;
 
-	erase = c->vc_video_erase.celldata;
+	erase = to_u16(c, c->vc_video_erase);
 
 	vgacon_restore_screen(c);
 	oldo = vga_origin - vga_vram_base;
@@ -1164,6 +1179,9 @@ static void vgacon_complement_pointer_pos(struct vc_data *vc, int offset)
 	static int old_offset = -1;
 	static u16 old;
 
+	u16 complement_mask = vga_can_do_color ? 0x7700 :
+		0x8000;	/* blink */
+
 	if (old_offset != -1 && old_offset >= 0 &&
 			old_offset < vc->vc_screen_size) {
 		scr_write(old, vga_visible_origin + old_offset);
@@ -1173,7 +1191,7 @@ static void vgacon_complement_pointer_pos(struct vc_data *vc, int offset)
 
 	if (offset != -1 && offset >= 0 && offset < vc->vc_screen_size) {
 		old = scr_read(vga_visible_origin + offset);
-		scr_write(old ^ vc->vc_complement_mask,
+		scr_write(old ^ complement_mask,
 				vga_visible_origin + offset);
 	}
 }
@@ -1197,7 +1215,7 @@ static void vgacon_clear(struct vc_data *vc, int ypos, int xpos, int height,
 
 static void vgacon_putc(struct vc_data *vc, struct vc_cell c, int ypos, int xpos)
 {
-	u16 w = c.celldata;
+	u16 w = to_u16(vc, c);
 
 	u16 *p = vga_origin + ypos * vc->vc_cols + xpos;
 	scr_write(w, p);
@@ -1237,7 +1255,6 @@ const struct consw vga_con = {
 	.con_set_palette = vgacon_set_palette,
 	.con_scrollback= vgacon_scrollback,
 	.con_reset_origin = vgacon_reset_origin,
-	.con_build_attr = vgacon_build_attr,
 	.con_invert_selection = vgacon_invert_selection,
 	.con_complement_pointer_pos = vgacon_complement_pointer_pos,
 	.con_screen_glyph = vgacon_screen_glyph,

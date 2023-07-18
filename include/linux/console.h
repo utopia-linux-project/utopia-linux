@@ -20,6 +20,7 @@
 #include <linux/types.h>
 
 struct vc_data;
+struct vc_cell;
 struct console_font_op;
 struct console_font;
 struct module;
@@ -71,9 +72,6 @@ struct consw {
 			const unsigned char *table);
 	void	(*con_scrollback)(struct vc_data *vc, int lines);
 	int	(*con_reset_origin)(struct vc_data *vc);
-	u8	(*con_build_attr)(struct vc_data *vc, u8 color,
-			enum vc_intensity intensity,
-			bool blink, bool underline, bool reverse, bool italic);
 	void	(*con_invert_selection)(struct vc_data *vc, int offset, int count);
 	u16	(*con_screen_glyph)(const struct vc_data *vc, int ypos, int xpos);
 	void	(*con_complement_pointer_pos)(struct vc_data *vc, int offset);
