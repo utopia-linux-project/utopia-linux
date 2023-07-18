@@ -38,8 +38,8 @@ extern struct vc_cell *screen_pos(const struct vc_data *vc, int w_offset,
 		bool viewed);
 extern u16 screen_glyph(const struct vc_data *vc, int offset);
 extern u32 screen_glyph_unicode(const struct vc_data *vc, int offset);
-extern void complement_pos(struct vc_data *vc, int offset);
-extern void invert_region(struct vc_data *vc, int offset, int count);
+extern void complement_pointer_pos(struct vc_data *vc, int offset);
+extern void invert_selection(struct vc_data *vc, int offset, int count);
 
 extern void getconsxy(const struct vc_data *vc, unsigned char xy[static 2]);
 extern void putconsxy(struct vc_data *vc, unsigned char xy[static const 2]);

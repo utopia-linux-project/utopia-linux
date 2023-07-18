@@ -53,13 +53,13 @@ static struct vc_selection {
 /* set reverse video on characters s-e of console with selection. */
 static inline void highlight(const int s, const int e)
 {
-	invert_region(vc_sel.cons, s, e-s+1);
+	invert_selection(vc_sel.cons, s, e-s+1);
 }
 
 /* use complementary color to show the pointer */
 static inline void highlight_pointer(const int where)
 {
-	complement_pos(vc_sel.cons, where);
+	complement_pointer_pos(vc_sel.cons, where);
 }
 
 static u32

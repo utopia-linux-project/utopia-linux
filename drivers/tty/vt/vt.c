@@ -452,15 +452,15 @@ static void update_attr(struct vc_data *vc)
 }
 
 /* Note: inverting the screen twice should revert to the original state */
-void invert_region(struct vc_data *vc, int offset, int count)
+void invert_selection(struct vc_data *vc, int offset, int count)
 {
 	struct vc_cell *p;
 
 	WARN_CONSOLE_UNLOCKED();
 
 	p = screenpos(vc, offset);
-	if (vc->vc_sw->con_invert_region) {
-		vc->vc_sw->con_invert_region(vc, offset, count);
+	if (vc->vc_sw->con_invert_selection) {
+		vc->vc_sw->con_invert_selection(vc, offset, count);
 	} else {
 		struct vc_cell *q = p;
 		int cnt = count;
@@ -491,15 +491,15 @@ void invert_region(struct vc_data *vc, int offset, int count)
 }
 
 /* used by selection: complement pointer position */
-void complement_pos(struct vc_data *vc, int offset)
+void complement_pointer_pos(struct vc_data *vc, int offset)
 {
 	static int old_offset = -1;
 	static struct vc_cell old;
 	static unsigned short oldx, oldy;
 
-	if (vc && vc->vc_sw && vc->vc_sw->con_complement_pos) {
+	if (vc && vc->vc_sw && vc->vc_sw->con_complement_pointer_pos) {
 		if (con_should_update(vc))
-			vc->vc_sw->con_complement_pos(vc, offset);
+			vc->vc_sw->con_complement_pointer_pos(vc, offset);
 		// TODO: notify_update() ??
 		return;
 	}
@@ -1527,7 +1527,7 @@ static void set_mode(struct vc_data *vc, int on_off)
 			case 5:			/* Inverted screen on/off */
 				if (vc->vc_decscnm != on_off) {
 					vc->vc_decscnm = on_off;
-					invert_region(vc, 0,
+					invert_selection(vc, 0,
 							vc->vc_screen_size);
 					update_attr(vc);
 				}

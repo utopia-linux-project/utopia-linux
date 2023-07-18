@@ -73,7 +73,7 @@ static int vgacon_switch(struct vc_data *c);
 static int vgacon_blank(struct vc_data *c, int blank, int mode_switch);
 static void vgacon_scrollback(struct vc_data *c, int lines);
 static int vgacon_reset_origin(struct vc_data *c);
-static void vgacon_invert_region(struct vc_data *c, int offset, int count);
+static void vgacon_invert_selection(struct vc_data *c, int offset, int count);
 static void vgacon_clear(struct vc_data *vc, int sy, int sx, int height, int width);
 static void vgacon_putc(struct vc_data *vc, struct vc_cell c, int ypos, int xpos);
 static void vgacon_putcs(struct vc_data *vc, const struct vc_cell *s, int count,
@@ -462,7 +462,8 @@ static u8 vgacon_build_attr(struct vc_data *c, u8 color,
 	return attr;
 }
 
-static void vgacon_invert_region(struct vc_data *c, int offset, int count)
+/* Used by selection. Hence it uses the visible region. */
+static void vgacon_invert_selection(struct vc_data *c, int offset, int count)
 {
 	const bool col = vga_can_do_color;
 	u16 *p = vga_visible_origin + offset;
@@ -1144,7 +1145,7 @@ static bool vgacon_scroll(struct vc_data *c, unsigned int t, unsigned int b,
 }
 
 /* Used by selection. Hence it uses the visible area. */
-static void vgacon_complement_pos(struct vc_data *vc, int offset)
+static void vgacon_complement_pointer_pos(struct vc_data *vc, int offset)
 {
 	static int old_offset = -1;
 	static u16 old;
@@ -1223,8 +1224,8 @@ const struct consw vga_con = {
 	.con_scrollback= vgacon_scrollback,
 	.con_reset_origin = vgacon_reset_origin,
 	.con_build_attr = vgacon_build_attr,
-	.con_invert_region = vgacon_invert_region,
-	.con_complement_pos = vgacon_complement_pos,
+	.con_invert_selection = vgacon_invert_selection,
+	.con_complement_pointer_pos = vgacon_complement_pointer_pos,
 	.con_screen_glyph = vgacon_screen_glyph,
 };
 EXPORT_SYMBOL(vga_con);

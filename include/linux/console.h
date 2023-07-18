@@ -74,9 +74,9 @@ struct consw {
 	u8	(*con_build_attr)(struct vc_data *vc, u8 color,
 			enum vc_intensity intensity,
 			bool blink, bool underline, bool reverse, bool italic);
-	void	(*con_invert_region)(struct vc_data *vc, int offset, int count);
+	void	(*con_invert_selection)(struct vc_data *vc, int offset, int count);
 	u16	(*con_screen_glyph)(const struct vc_data *vc, int ypos, int xpos);
-	void	(*con_complement_pos)(struct vc_data *vc, int offset);
+	void	(*con_complement_pointer_pos)(struct vc_data *vc, int offset);
 	/*
 	 * Flush the video console driver's scrollback buffer
 	 */

@@ -414,7 +414,7 @@ static u8 mdacon_build_attr(struct vc_data *c, u8 color,
 		(blink << 7);
 }
 
-static void mdacon_invert_region(struct vc_data *c, int offset, int count)
+static void mdacon_invert_selection(struct vc_data *c, int offset, int count)
 {
 	u16 *p = c->vc_screenbuf + offset;
 
@@ -553,7 +553,7 @@ static const struct consw mda_con = {
 	.con_switch =		mdacon_switch,
 	.con_blank =		mdacon_blank,
 	.con_build_attr =	mdacon_build_attr,
-	.con_invert_region =	mdacon_invert_region,
+	.con_invert_selection =	mdacon_invert_selection,
 };
 
 int __init mda_console_init(void)

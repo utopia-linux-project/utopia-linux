@@ -343,7 +343,7 @@ static u8 sticon_build_attr(struct vc_data *conp, u8 color,
 		return (bg << 3) | fg;
 }
 
-static void sticon_invert_region(struct vc_data *conp, int offset, int count)
+static void sticon_invert_selection(struct vc_data *conp, int offset, int count)
 {
     int col = 1; /* vga_can_do_color; */
 
@@ -376,7 +376,7 @@ static const struct consw sti_con = {
 	.con_font_set		= sticon_font_set,
 	.con_font_default	= sticon_font_default,
 	.con_build_attr		= sticon_build_attr,
-	.con_invert_region	= sticon_invert_region, 
+	.con_invert_selection	= sticon_invert_selection,
 };
 
 

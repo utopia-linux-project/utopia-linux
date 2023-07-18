@@ -2502,7 +2502,7 @@ static void fbcon_set_palette(struct vc_data *vc, const unsigned char *table)
 
 /* As we might be inside of softback, we may work with non-contiguous buffer,
    that's why we have to use a separate routine. */
-static void fbcon_invert_region(struct vc_data *vc, int offset, int cnt)
+static void fbcon_invert_selection(struct vc_data *vc, int offset, int cnt)
 {
 	struct vc_cell *p = vc->vc_screenbuf + offset;
 
@@ -3039,7 +3039,7 @@ static const struct consw fb_con = {
 	.con_font_get 		= fbcon_get_font,
 	.con_font_default	= fbcon_set_def_font,
 	.con_set_palette 	= fbcon_set_palette,
-	.con_invert_region 	= fbcon_invert_region,
+	.con_invert_selection	= fbcon_invert_selection,
 	.con_resize             = fbcon_resize,
 	.con_debug_enter	= fbcon_debug_enter,
 	.con_debug_leave	= fbcon_debug_leave,
