@@ -157,7 +157,6 @@ int vt_do_kdgkb_ioctl(int cmd, struct kbsentry __user *user_kdgkb, int perm);
 int vt_do_kdskled(unsigned int console, int cmd, unsigned long arg, int perm);
 int vt_do_kdgkbmode(unsigned int console);
 int vt_do_kdgkbmeta(unsigned int console);
-void vt_reset_unicode(unsigned int console);
 int vt_get_shift_state(void);
 void vt_reset_keyboard(unsigned int console);
 int vt_get_leds(unsigned int console, int flag);

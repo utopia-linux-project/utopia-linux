@@ -72,9 +72,9 @@ static inline int kbd_defleds(void)
 
 #define K_HANDLERS\
 	k_self,		k_fn,		k_spec,		k_pad,\
-	k_dead,		k_cons,		k_cur,		k_shift,\
+	k_deadlegacy,	k_cons,		k_cur,		k_shift,\
 	k_meta,		k_codepoint,	k_lock,		k_lowercase,\
-	k_slock,	k_dead2,	k_brl,		k_ignore
+	k_slock,	k_dead,		k_brl,		k_ignore
 
 typedef void (k_handler_fn)(struct vc_data *vc, unsigned char value,
 			    char up_flag);
@@ -322,9 +322,9 @@ int kbd_rate(struct kbd_repeat *rpt)
 /*
  * Helper Functions.
  */
-static void put_queue(struct vc_data *vc, int ch)
+static void putb_queue(struct vc_data *vc, unsigned char byte)
 {
-	tty_insert_flip_char(&vc->port, ch, 0);
+	tty_insert_flip_char(&vc->port, byte, 0);
 	tty_flip_buffer_push(&vc->port);
 }
 
@@ -349,30 +349,30 @@ static void applkey(struct vc_data *vc, int key, char mode)
  * string, and in both cases we might assume that it is
  * in utf-8 already.
  */
-static void to_utf8(struct vc_data *vc, uint c)
+static void put_queue(struct vc_data *vc, uint c)
 {
 	if (c < 0x80)
 		/*  0******* */
-		put_queue(vc, c);
+		putb_queue(vc, c);
 	else if (c < 0x800) {
 		/* 110***** 10****** */
-		put_queue(vc, 0xc0 | (c >> 6));
-		put_queue(vc, 0x80 | (c & 0x3f));
+		putb_queue(vc, 0xc0 | (c >> 6));
+		putb_queue(vc, 0x80 | (c & 0x3f));
 	} else if (c < 0x10000) {
 		if (c >= 0xD800 && c < 0xE000)
 			return;
 		if (c == 0xFFFF)
 			return;
 		/* 1110**** 10****** 10****** */
-		put_queue(vc, 0xe0 | (c >> 12));
-		put_queue(vc, 0x80 | ((c >> 6) & 0x3f));
-		put_queue(vc, 0x80 | (c & 0x3f));
+		putb_queue(vc, 0xe0 | (c >> 12));
+		putb_queue(vc, 0x80 | ((c >> 6) & 0x3f));
+		putb_queue(vc, 0x80 | (c & 0x3f));
 	} else if (c < 0x110000) {
 		/* 11110*** 10****** 10****** 10****** */
-		put_queue(vc, 0xf0 | (c >> 18));
-		put_queue(vc, 0x80 | ((c >> 12) & 0x3f));
-		put_queue(vc, 0x80 | ((c >> 6) & 0x3f));
-		put_queue(vc, 0x80 | (c & 0x3f));
+		putb_queue(vc, 0xf0 | (c >> 18));
+		putb_queue(vc, 0x80 | ((c >> 12) & 0x3f));
+		putb_queue(vc, 0x80 | ((c >> 6) & 0x3f));
+		putb_queue(vc, 0x80 | (c & 0x3f));
 	}
 }
 
@@ -454,13 +454,7 @@ static unsigned int handle_diacr(struct vc_data *vc, unsigned int ch)
 	if (ch == ' ' || ch == (BRL_UC_ROW|0) || ch == d)
 		return d;
 
-	if (kbd->kbdmode == VC_UNICODE)
-		to_utf8(vc, d);
-	else {
-		int c = conv_uni_to_8bit(d);
-		if (c != -1)
-			put_queue(vc, c);
-	}
+	put_queue(vc, d);
 
 	return ch;
 }
@@ -471,13 +465,7 @@ static unsigned int handle_diacr(struct vc_data *vc, unsigned int ch)
 static void fn_enter(struct vc_data *vc)
 {
 	if (diacr) {
-		if (kbd->kbdmode == VC_UNICODE)
-			to_utf8(vc, diacr);
-		else {
-			int c = conv_uni_to_8bit(diacr);
-			if (c != -1)
-				put_queue(vc, c);
-		}
+		put_queue(vc, diacr);
 		diacr = 0;
 	}
 
@@ -672,7 +660,7 @@ static void k_lowercase(struct vc_data *vc, unsigned char value, char up_flag)
 	pr_err("k_lowercase was called - impossible\n");
 }
 
-static void k_unicode(struct vc_data *vc, unsigned int value, char up_flag)
+static void k_self(struct vc_data *vc, unsigned char value, char up_flag)
 {
 	if (up_flag)
 		return;		/* no action, if this is a key release */
@@ -685,13 +673,7 @@ static void k_unicode(struct vc_data *vc, unsigned int value, char up_flag)
 		diacr = value;
 		return;
 	}
-	if (kbd->kbdmode == VC_UNICODE)
-		to_utf8(vc, value);
-	else {
-		int c = conv_uni_to_8bit(value);
-		if (c != -1)
-			put_queue(vc, c);
-	}
+	put_queue(vc, value);
 }
 
 /*
@@ -699,7 +681,7 @@ static void k_unicode(struct vc_data *vc, unsigned int value, char up_flag)
  * dead keys modifying the same character. Very useful
  * for Vietnamese.
  */
-static void k_deadunicode(struct vc_data *vc, unsigned int value, char up_flag)
+static void k_dead(struct vc_data *vc, unsigned char value, char up_flag)
 {
 	if (up_flag)
 		return;
@@ -707,20 +689,10 @@ static void k_deadunicode(struct vc_data *vc, unsigned int value, char up_flag)
 	diacr = (diacr ? handle_diacr(vc, value) : value);
 }
 
-static void k_self(struct vc_data *vc, unsigned char value, char up_flag)
-{
-	k_unicode(vc, conv_8bit_to_uni(value), up_flag);
-}
-
-static void k_dead2(struct vc_data *vc, unsigned char value, char up_flag)
-{
-	k_deadunicode(vc, value, up_flag);
-}
-
 /*
  * Obsolete - for backwards compatibility only
  */
-static void k_dead(struct vc_data *vc, unsigned char value, char up_flag)
+static void k_deadlegacy(struct vc_data *vc, unsigned char value, char up_flag)
 {
 	static const unsigned char ret_diacr[NR_DEAD] = {
 		'`',	/* dead_grave */
@@ -752,7 +724,7 @@ static void k_dead(struct vc_data *vc, unsigned char value, char up_flag)
 		'@',	/* dead_greek */
 	};
 
-	k_deadunicode(vc, ret_diacr[value], up_flag);
+	k_dead(vc, ret_diacr[value], up_flag);
 }
 
 static void k_cons(struct vc_data *vc, unsigned char value, char up_flag)
@@ -882,10 +854,7 @@ static void k_shift(struct vc_data *vc, unsigned char value, char up_flag)
 
 	/* kludge */
 	if (up_flag && shift_state != old_state && npadch_active) {
-		if (kbd->kbdmode == VC_UNICODE)
-			to_utf8(vc, npadch_value);
-		else
-			put_queue(vc, npadch_value & 0xff);
+		put_queue(vc, npadch_value);
 		npadch_active = false;
 	}
 }
@@ -963,12 +932,13 @@ static void k_brlcommit(struct vc_data *vc, unsigned int pattern, char up_flag)
 	static unsigned committed;
 
 	if (!brl_nbchords)
-		k_deadunicode(vc, BRL_UC_ROW | pattern, up_flag);
+		k_dead(vc, BRL_UC_ROW | pattern, up_flag);
 	else {
 		committed |= pattern;
 		chords++;
 		if (chords == brl_nbchords) {
-			k_unicode(vc, BRL_UC_ROW | committed, up_flag);
+			// TODO: Fix Braille. What code do we generate?
+			k_self(vc, BRL_UC_ROW | committed, up_flag);
 			chords = 0;
 			committed = 0;
 		}
@@ -980,14 +950,8 @@ static void k_brl(struct vc_data *vc, unsigned char value, char up_flag)
 	static unsigned pressed, committing;
 	static unsigned long releasestart;
 
-	if (kbd->kbdmode != VC_UNICODE) {
-		if (!up_flag)
-			pr_warn("keyboard mode must be unicode for braille patterns\n");
-		return;
-	}
-
 	if (!value) {
-		k_unicode(vc, BRL_UC_ROW, up_flag);
+		k_self(vc, BRL_UC_ROW, up_flag);
 		return;
 	}
 
@@ -1497,7 +1461,7 @@ static void kbd_keycode(unsigned int keycode, int down, bool hw_raw)
 						KBD_UNICODE, &param);
 		if (rc != NOTIFY_STOP)
 			if (down && !raw_mode)
-				k_unicode(vc, keysym, !down);
+				k_self(vc, keysym, !down);
 		return;
 	}
 
@@ -1662,7 +1626,7 @@ int __init kbd_init(void)
 		kbd_table[i].lockstate = KBD_DEFLOCK;
 		kbd_table[i].slockstate = 0;
 		kbd_table[i].modeflags = KBD_DEFMODE;
-		kbd_table[i].kbdmode = default_utf8 ? VC_UNICODE : VC_XLATE;
+		kbd_table[i].kbdmode = VC_XLATE;
 	}
 
 	kbd_init_leds();
@@ -1712,12 +1676,9 @@ int vt_do_diacrit(unsigned int cmd, void __user *udp, int perm)
 
 		asize = accent_table_size;
 		for (i = 0; i < asize; i++) {
-			dia[i].diacr = conv_uni_to_8bit(
-						accent_table[i].diacr);
-			dia[i].base = conv_uni_to_8bit(
-						accent_table[i].base);
-			dia[i].result = conv_uni_to_8bit(
-						accent_table[i].result);
+			dia[i].diacr = accent_table[i].diacr;
+			dia[i].base = accent_table[i].base;
+			dia[i].result = accent_table[i].result;
 		}
 		spin_unlock_irqrestore(&kbd_event_lock, flags);
 
@@ -1783,12 +1744,9 @@ int vt_do_diacrit(unsigned int cmd, void __user *udp, int perm)
 		spin_lock_irqsave(&kbd_event_lock, flags);
 		accent_table_size = ct;
 		for (i = 0; i < ct; i++) {
-			accent_table[i].diacr =
-					conv_8bit_to_uni(dia[i].diacr);
-			accent_table[i].base =
-					conv_8bit_to_uni(dia[i].base);
-			accent_table[i].result =
-					conv_8bit_to_uni(dia[i].result);
+			accent_table[i].diacr = dia[i].diacr;
+			accent_table[i].base = dia[i].base;
+			accent_table[i].result = dia[i].result;
 		}
 		spin_unlock_irqrestore(&kbd_event_lock, flags);
 		kfree(dia);
@@ -1851,12 +1809,8 @@ int vt_do_kdskbmode(unsigned int console, unsigned int arg)
 	case K_MEDIUMRAW:
 		kb->kbdmode = VC_MEDIUMRAW;
 		break;
-	case K_XLATE:
+	case K_XLATE: case K_UNICODE:
 		kb->kbdmode = VC_XLATE;
-		do_compute_shiftstate();
-		break;
-	case K_UNICODE:
-		kb->kbdmode = VC_UNICODE;
 		do_compute_shiftstate();
 		break;
 	case K_OFF:
@@ -1932,7 +1886,7 @@ static unsigned short vt_kdgkbent(unsigned char kbdmode, unsigned char idx,
 	key_map = key_maps[map];
 	if (key_map) {
 		val = U(key_map[idx]);
-		if (kbdmode != VC_UNICODE && KTYP(val) >= NR_TYPES)
+		if (KTYP(val) >= NR_TYPES)
 			val = K_HOLE;
 	} else
 		val = idx ? K_HOLE : K_NOSUCHMAP;
@@ -1966,7 +1920,7 @@ static int vt_kdskbent(unsigned char kbdmode, unsigned char idx,
 	if (KTYP(val) < NR_TYPES) {
 		if (KVAL(val) > max_vals[KTYP(val)])
 			return -EINVAL;
-	} else if (kbdmode != VC_UNICODE)
+	} else
 		return -EINVAL;
 
 	/* ++Geert: non-PC keyboards may generate keycode zero */
@@ -2160,11 +2114,9 @@ int vt_do_kdgkbmode(unsigned int console)
 		return K_RAW;
 	case VC_MEDIUMRAW:
 		return K_MEDIUMRAW;
-	case VC_UNICODE:
-		return K_UNICODE;
 	case VC_OFF:
 		return K_OFF;
-	default:
+	case VC_UNICODE: default:
 		return K_XLATE;
 	}
 }
@@ -2180,21 +2132,6 @@ int vt_do_kdgkbmeta(unsigned int console)
 	struct kbd_struct *kb = &kbd_table[console];
         /* Again a spot read so no locking */
 	return vc_kbd_mode(kb, VC_META) ? K_ESCPREFIX : K_METABIT;
-}
-
-/**
- *	vt_reset_unicode	-	reset the unicode status
- *	@console: console being reset
- *
- *	Restore the unicode console state to its default
- */
-void vt_reset_unicode(unsigned int console)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&kbd_event_lock, flags);
-	kbd_table[console].kbdmode = default_utf8 ? VC_UNICODE : VC_XLATE;
-	spin_unlock_irqrestore(&kbd_event_lock, flags);
 }
 
 /**

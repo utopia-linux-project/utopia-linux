@@ -134,7 +134,7 @@ static const struct sysrq_key_op sysrq_SAK_op = {
 #ifdef CONFIG_VT
 static void sysrq_handle_unraw(int key)
 {
-	vt_reset_unicode(fg_console);
+	// vt_reset_unicode(fg_console);
 }
 
 static const struct sysrq_key_op sysrq_unraw_op = {
