@@ -1104,6 +1104,42 @@ unsigned char default_blu[] = {
 };
 module_param_array(default_blu, byte, NULL, S_IRUGO | S_IWUSR);
 
+/* ncurses alternate character set */
+enum {
+	ACS_RARROW = 0x2b, ACS_LARROW, ACS_UARROW, ACS_DARROW,
+	ACS_BLOCK = 0x30,
+	ACS_DIAMOND = 0x60, ACS_CKBOARD,
+	ACS_DEGREE = 0x66, ACS_PLMINUS, ACS_BOARD, ACS_LANTERN,
+	ACS_LRCORNER, ACS_URCORNER, ACS_ULCORNER, ACS_LLCORNER,
+	ACS_PLUS, ACS_S1, ACS_S3, ACS_HLINE, ACS_S7, ACS_S9,
+	ACS_LTEE, ACS_RTEE, ACS_BTEE, ACS_TTEE, ACS_VLINE,
+	ACS_LEQUAL, ACS_GEQUAL, ACS_PI, ACS_NEQUAL,
+	ACS_STERLING, ACS_BULLET
+};
+
+static const unsigned char vc_acs_to_cp437[128] = {
+	[ACS_RARROW] = 0x1a, [ACS_LARROW] = 0x1b, [ACS_UARROW] = 0x18,
+	[ACS_DARROW] = 0x19, [ACS_BLOCK] = 0xDB, [ACS_DIAMOND] = 0x04,
+	[ACS_CKBOARD] = 0xb1, [ACS_DEGREE] = 0xa7, [ACS_PLMINUS] = 0xf1,
+	[ACS_BOARD] = 0xb0,
+
+	/*
+	 * According to Dan Gookin's Guide to Ncurses Programming,
+	 * ACS_LANTERN is the section symbol.
+	 */
+	[ACS_LANTERN] = 0x15,  /* Section symbol */
+
+	[ACS_LRCORNER] = 0xd9, [ACS_URCORNER] = 0xbf, [ACS_ULCORNER] = 0xda,
+	[ACS_LLCORNER] = 0xc0, [ACS_PLUS] = 0xc5, [ACS_HLINE] = 0xc4,
+	[ACS_LTEE] = 0xc3, [ACS_RTEE] = 0xb4, [ACS_BTEE] = 0xc1,
+	[ACS_TTEE] = 0xc2, [ACS_VLINE] = 0xb3, [ACS_LEQUAL] = 0xf3,
+	[ACS_GEQUAL] = 0xf2, [ACS_PI] = 0xe3, [ACS_STERLING] = 0x9c,
+	[ACS_BULLET] = 0xfa
+
+	/* ACS_NEQUAL will be handled elsewhere. */
+	/* ACS_S1, ACS_S3, ACS_S7, and ACS_S9 are not supported */
+};
+
 /*
  * gotoxy() must verify all boundaries, because the arguments
  * might also be negative. If the given position is out of
@@ -2316,7 +2352,18 @@ static int vc_translate(struct vc_data *vc, unsigned char c, bool *rescan)
 	if (vc->vc_toggle_meta)
 		return c | 0x80;
 
+	if (vc->state.charset && c > 32 && c < 127) {
+		/*
+		 * TODO: Special handling for ACS_NEQUAL.
+		 * If a suitable font is installed, use the proper character.
+		 */
 
+		int tc = vc_acs_to_cp437[c];
+		if (!tc) {
+			return 0xfffd;
+		}
+		return tc;
+	}
 
 	return c;
 }
@@ -2412,6 +2459,23 @@ static int vc_con_write_normal(struct vc_data *vc, int tc, int c,
 			 * end up with having question marks only.
 			 */
 			tc = c;
+
+			if (vc->state.charset && c == ACS_NEQUAL) {
+				/*
+				 * Apparently we don't have a font installed
+				 * that provides the not-equals character.
+				 * Display a sequence of logical-not and equals
+				 * in reverse video.
+				 */
+				inverse = true;
+				tc = 0xAA;  /* Logical not symbol in CP437 */
+				width = 2;
+				next_c = '=';
+
+				vc_attr = vc_invert_attr(vc);
+				con_flush(vc, draw);
+			}
+
 		} else {
 			inverse = true;
 			tc = '?';
