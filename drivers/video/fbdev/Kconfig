@@ -194,7 +194,7 @@ config FB_MODE_HELPERS
 
 config FB_TILEBLITTING
 	bool "Enable Tile Blitting Support"
-	depends on FB
+	depends on FB && !UTOPIA
 	help
 	  This enables tile blitting.  Tile blitting is a drawing technique
 	  where the screen is divided into rectangular sections (tiles), whereas
