@@ -17,15 +17,16 @@
 
 #include <asm/io.h>
 
-   /*
-    *    This is the interface between the low-level console driver and the
-    *    low-level frame buffer device
-    */
-
 struct fbcon_display {
-    /* Filled in by the low-level console driver */
-    const u_char *fontdata;
-    int userfont;                   /* != 0 if fontdata kmalloc()ed */
+	int cell_height;
+	int cell_width;
+
+	int font_height;
+	int font_width;
+	int font_charcount;
+	const u_char *fontdata;
+	int userfont;                   /* != 0 if fontdata kmalloc()ed */
+
 #ifdef CONFIG_FRAMEBUFFER_CONSOLE_LEGACY_ACCELERATION
     u_short scrollmode;             /* Scroll Method, use fb_scrollmode() */
 #endif
@@ -64,6 +65,9 @@ struct fbcon_ops {
 		       int fg, int bg);
 	int  (*update_start)(struct fb_info *info);
 	int  (*rotate_font)(struct fb_info *info, struct vc_data *vc);
+
+	// TODO: Move all of this into the fbcon_display structure.
+
 	struct fb_var_screeninfo var;  /* copy of the current fb_var_screeninfo */
 	struct delayed_work cursor_work; /* Cursor timer */
 	struct fb_cursor cursor_state;
@@ -81,7 +85,7 @@ struct fbcon_ops {
 	int    cur_rotate;
 	char  *cursor_data;
 	u8    *fontbuffer;
-	u8    *fontdata;
+	const u8 *fontdata;
 	u8    *cursor_src;
 	u32    cursor_size;
 	u32    fd_size;

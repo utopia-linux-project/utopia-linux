@@ -413,7 +413,6 @@ static void vgacon_init(struct vc_data *c, int init)
 	 */
 	c->vc_can_do_color = vga_can_do_color;
 	c->vc_scan_lines = vga_scan_lines;
-	c->vc_font.height = c->vc_cell_height = vga_video_font_height;
 
 	/* set dimensions manually if init != 0 since vc_resize() will fail */
 	if (init) {
@@ -559,29 +558,29 @@ static void vgacon_cursor(struct vc_data *c, int mode)
 				(c->vc_pos - c->vc_screenbuf));
 		switch (CUR_SIZE(c->vc_cursor_type)) {
 		case CUR_UNDERLINE:
-			vgacon_set_cursor_size(c->vc_cell_height -
-					       (c->vc_cell_height <
+			vgacon_set_cursor_size(vga_video_font_height -
+					       (vga_video_font_height <
 						10 ? 2 : 3),
-					       c->vc_cell_height -
-					       (c->vc_cell_height <
+					       vga_video_font_height -
+					       (vga_video_font_height <
 						10 ? 1 : 2));
 			break;
 		case CUR_TWO_THIRDS:
-			vgacon_set_cursor_size(c->vc_cell_height / 3,
-					       c->vc_cell_height -
-					       (c->vc_cell_height <
+			vgacon_set_cursor_size(vga_video_font_height / 3,
+					       vga_video_font_height -
+					       (vga_video_font_height <
 						10 ? 1 : 2));
 			break;
 		case CUR_LOWER_THIRD:
-			vgacon_set_cursor_size((c->vc_cell_height * 2) / 3,
-					       c->vc_cell_height -
-					       (c->vc_cell_height <
+			vgacon_set_cursor_size((vga_video_font_height * 2) / 3,
+					       vga_video_font_height -
+					       (vga_video_font_height <
 						10 ? 1 : 2));
 			break;
 		case CUR_LOWER_HALF:
-			vgacon_set_cursor_size(c->vc_cell_height / 2,
-					       c->vc_cell_height -
-					       (c->vc_cell_height <
+			vgacon_set_cursor_size(vga_video_font_height / 2,
+					       vga_video_font_height -
+					       (vga_video_font_height <
 						10 ? 1 : 2));
 			break;
 		case CUR_NONE:
@@ -591,7 +590,7 @@ static void vgacon_cursor(struct vc_data *c, int mode)
 				vgacon_set_cursor_size(31, 31);
 			break;
 		default:
-			vgacon_set_cursor_size(1, c->vc_cell_height);
+			vgacon_set_cursor_size(1, vga_video_font_height);
 			break;
 		}
 		break;
@@ -602,13 +601,13 @@ static int vgacon_doresize(struct vc_data *c,
 		unsigned int width, unsigned int height)
 {
 	unsigned long flags;
-	unsigned int scanlines = height * c->vc_cell_height;
+	unsigned int scanlines = height * vga_video_font_height;
 	u8 scanlines_lo = 0, r7 = 0, vsync_end = 0, mode, max_scan;
 
 	raw_spin_lock_irqsave(&vga_lock, flags);
 
 	vgacon_xres = width * VGA_FONTWIDTH;
-	vgacon_yres = height * c->vc_cell_height;
+	vgacon_yres = height * vga_video_font_height;
 	if (vga_video_type >= VIDEO_TYPE_VGAC) {
 		outb_p(VGA_CRTC_MAX_SCAN, vga_video_port_reg);
 		max_scan = inb_p(vga_video_port_val);
@@ -663,9 +662,9 @@ static int vgacon_doresize(struct vc_data *c,
 static int vgacon_switch(struct vc_data *c)
 {
 	int x = c->vc_cols * VGA_FONTWIDTH;
-	int y = c->vc_rows * c->vc_cell_height;
+	int y = c->vc_rows * vga_video_font_height;
 	int rows = screen_info.orig_video_lines * vga_default_font_height/
-		c->vc_cell_height;
+		vga_video_font_height;
 	/*
 	 * We need to save screen size here as it's the only way
 	 * we can spot the screen has been resized and we need to
@@ -1036,7 +1035,6 @@ static int vgacon_adjust_height(struct vc_data *vc, unsigned fontheight)
 				cursor_size_lastto = 0;
 				c->vc_sw->con_cursor(c, CM_DRAW);
 			}
-			c->vc_font.height = c->vc_cell_height = fontheight;
 			vc_resize(c, 0, rows);	/* Adjust console size */
 		}
 	}
@@ -1071,7 +1069,7 @@ static int vgacon_font_get(struct vc_data *c, struct console_font *font, unsigne
 		return -EINVAL;
 
 	font->width = VGA_FONTWIDTH;
-	font->height = c->vc_font.height;
+	font->height = vga_video_font_height;
 	font->charcount = 256;
 	if (!font->data)
 		return 0;
@@ -1091,12 +1089,12 @@ static int vgacon_resize(struct vc_data *c, unsigned int width,
 		 */
 		screen_info.orig_video_cols = width;
 		screen_info.orig_video_lines = height;
-		vga_default_font_height = c->vc_cell_height;
+		vga_default_font_height = vga_video_font_height;
 		return 0;
 	}
 	if (width % 2 || width > screen_info.orig_video_cols ||
 	    height > (screen_info.orig_video_lines * vga_default_font_height)/
-	    c->vc_cell_height)
+	    vga_video_font_height)
 		return -EINVAL;
 
 	if (con_is_visible(c) && !vga_is_gfx) /* who knows */

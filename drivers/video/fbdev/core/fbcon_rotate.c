@@ -21,26 +21,27 @@
 static int fbcon_rotate_font(struct fb_info *info, struct vc_data *vc)
 {
 	struct fbcon_ops *ops = info->fbcon_par;
+	struct fbcon_display *p = ops->p;
+
 	int len, err = 0;
 	int s_cellsize, d_cellsize, i;
 	const u8 *src;
 	u8 *dst;
 
-	if (vc->vc_font.data == ops->fontdata &&
-	    ops->p->con_rotate == ops->cur_rotate)
+	if (p->fontdata == ops->fontdata &&
+	    p->con_rotate == ops->cur_rotate)
 		goto finished;
 
-	src = ops->fontdata = vc->vc_font.data;
-	ops->cur_rotate = ops->p->con_rotate;
-	len = vc->vc_font.charcount;
-	s_cellsize = ((vc->vc_font.width + 7)/8) *
-		vc->vc_font.height;
+	src = ops->fontdata = p->fontdata;
+	ops->cur_rotate = p->con_rotate;
+	len = p->font_charcount;
+	s_cellsize = ((p->font_width + 7) / 8) * p->font_height;
 	d_cellsize = s_cellsize;
 
 	if (ops->rotate == FB_ROTATE_CW ||
 	    ops->rotate == FB_ROTATE_CCW)
-		d_cellsize = ((vc->vc_font.height + 7)/8) *
-			vc->vc_font.width;
+		d_cellsize = ((p->font_height + 7) / 8) *
+			p->font_width;
 
 	if (info->fbops->fb_sync)
 		info->fbops->fb_sync(info);
@@ -64,8 +65,7 @@ static int fbcon_rotate_font(struct fb_info *info, struct vc_data *vc)
 	switch (ops->rotate) {
 	case FB_ROTATE_UD:
 		for (i = len; i--; ) {
-			rotate_ud(src, dst, vc->vc_font.width,
-				  vc->vc_font.height);
+			rotate_ud(src, dst, p->font_width, p->font_height);
 
 			src += s_cellsize;
 			dst += d_cellsize;
@@ -73,16 +73,14 @@ static int fbcon_rotate_font(struct fb_info *info, struct vc_data *vc)
 		break;
 	case FB_ROTATE_CW:
 		for (i = len; i--; ) {
-			rotate_cw(src, dst, vc->vc_font.width,
-				  vc->vc_font.height);
+			rotate_cw(src, dst, p->font_width, p->font_height);
 			src += s_cellsize;
 			dst += d_cellsize;
 		}
 		break;
 	case FB_ROTATE_CCW:
 		for (i = len; i--; ) {
-			rotate_ccw(src, dst, vc->vc_font.width,
-				   vc->vc_font.height);
+			rotate_ccw(src, dst, p->font_width, p->font_height);
 			src += s_cellsize;
 			dst += d_cellsize;
 		}

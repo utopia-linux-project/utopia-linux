@@ -105,7 +105,6 @@ struct vc_data {
 	unsigned int	vc_cols;		/* [#] Console size */
 	unsigned int	vc_rows;
 	unsigned int	vc_scan_lines;		/* # of scan lines */
-	unsigned int	vc_cell_height;		/* CRTC character cell height */
 	unsigned int	vc_top, vc_bottom;	/* Scrolling region */
 	const struct consw *vc_sw;
 	struct vc_cell	*vc_screenbuf;		/* In-memory character/attribute buffer */
@@ -123,7 +122,6 @@ struct vc_data {
 	unsigned int	vc_cursor_type;
 	struct vc_cell	*vc_pos;		/* Cursor address */
 	/* fonts */	
-	struct console_font vc_font;		/* Current VC font set */
 	struct vc_cell	vc_video_erase;		/* Background erase */
 	/* VT terminal data */
 	unsigned int	vc_state;		/* Escape sequence parser state */

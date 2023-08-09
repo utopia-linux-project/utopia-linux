@@ -129,6 +129,7 @@ void fbcon_set_tileops(struct vc_data *vc, struct fb_info *info)
 {
 	struct fb_tilemap map;
 	struct fbcon_ops *ops = info->fbcon_par;
+	struct fb_display *p = ops->p;
 
 	ops->bmove = tile_bmove;
 	ops->clear = tile_clear;
@@ -137,11 +138,11 @@ void fbcon_set_tileops(struct vc_data *vc, struct fb_info *info)
 	ops->cursor = tile_cursor;
 	ops->update_start = tile_update_start;
 
-	if (ops->p) {
-		map.width = vc->vc_font.width;
-		map.height = vc->vc_font.height;
+	if (p) {
+		map.width = p->font_width;
+		map.height = p->font_height;
 		map.depth = 1;
-		map.length = vc->vc_font.charcount;
+		map.length = p->font_charcount;
 		map.data = ops->p->fontdata;
 		info->tileops->fb_settile(info, &map);
 	}
